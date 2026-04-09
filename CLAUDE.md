@@ -2,11 +2,11 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: Phase 5 Complete — Phase 6 Next
+## Status: Phase 6 Complete — Phase 7 Next
 
 **Last updated:** 2026-04-09
-**Current phase:** Phase 5 (Game Logic) ✅ — 68 tools implemented
-**Next up:** Phase 6 (Multiplayer) — networking, RPCs, local testing
+**Current phase:** Phase 6 (Multiplayer) ✅ — 78 tools implemented
+**Next up:** Phase 7 (Publishing) — build, export, Steam Workshop
 
 ---
 
@@ -32,6 +32,7 @@ Sbox-Claude/
 ├── README.md                          ← User-facing docs + setup guide
 ├── INSTALL.md                         ← Detailed installation guide
 ├── CONTRIBUTING.md                    ← How to add tools, conventions, protocol
+├── TESTING.md                         ← Test plan for all 78 tools (6 phases)
 ├── LICENSE                            ← MIT license
 ├── install.ps1                        ← Windows installer (auto-detects s&box)
 ├── install.sh                         ← Linux/WSL installer
@@ -59,6 +60,7 @@ Sbox-Claude/
 │   │       ├── physics.ts            # add_physics, add_collider, add_joint, raycast
 │   │       ├── ui.ts                 # create_razor_ui, add_screen_panel, add_world_panel
 │   │       ├── templates.ts          # create_player_controller, create_npc_controller, create_game_manager, create_trigger_zone
+│   │       ├── networking.ts         # add_network_helper, configure_network, network_spawn, set_ownership, RPCs, sync, templates
 │   │       └── status.ts             # get_bridge_status diagnostic tool
 │   └── dist/                          # Compiled JS (gitignored, built with `npm run build`)
 │
@@ -133,7 +135,17 @@ Sbox-Claude/
             ├── CreatePlayerControllerHandler.cs
             ├── CreateNpcControllerHandler.cs
             ├── CreateGameManagerHandler.cs
-            └── CreateTriggerZoneHandler.cs
+            ├── CreateTriggerZoneHandler.cs
+            ├── AddNetworkHelperHandler.cs
+            ├── ConfigureNetworkHandler.cs
+            ├── GetNetworkStatusHandler.cs
+            ├── NetworkSpawnHandler.cs
+            ├── SetOwnershipHandler.cs
+            ├── AddSyncPropertyHandler.cs
+            ├── AddRpcMethodHandler.cs
+            ├── CreateNetworkedPlayerHandler.cs
+            ├── CreateLobbyManagerHandler.cs
+            └── CreateNetworkEventsHandler.cs
 ```
 
 ---
@@ -233,7 +245,22 @@ Sbox-Claude/
 | `create_game_manager` | `tools/templates.ts` | `CreateGameManagerHandler.cs` | Generate game manager with state/score |
 | `create_trigger_zone` | `tools/templates.ts` | `CreateTriggerZoneHandler.cs` | Generate trigger zone with callbacks |
 
-### Phase 6–7 — See README.md roadmap
+### Phase 6 — Multiplayer (10 tools) ✅
+
+| Tool | MCP File | Bridge Handler | What It Does |
+|------|----------|----------------|-------------|
+| `add_network_helper` | `tools/networking.ts` | `AddNetworkHelperHandler.cs` | Add NetworkHelper for lobby/spawning |
+| `configure_network` | `tools/networking.ts` | `ConfigureNetworkHandler.cs` | Set max players, lobby name, prefab |
+| `get_network_status` | `tools/networking.ts` | `GetNetworkStatusHandler.cs` | Connection state, players, lobby info |
+| `network_spawn` | `tools/networking.ts` | `NetworkSpawnHandler.cs` | Network-enable a GameObject |
+| `set_ownership` | `tools/networking.ts` | `SetOwnershipHandler.cs` | Transfer/take/drop network ownership |
+| `add_sync_property` | `tools/networking.ts` | `AddSyncPropertyHandler.cs` | Add [Sync] property to script |
+| `add_rpc_method` | `tools/networking.ts` | `AddRpcMethodHandler.cs` | Add RPC method to script |
+| `create_networked_player` | `tools/networking.ts` | `CreateNetworkedPlayerHandler.cs` | Generate networked player controller |
+| `create_lobby_manager` | `tools/networking.ts` | `CreateLobbyManagerHandler.cs` | Generate lobby management script |
+| `create_network_events` | `tools/networking.ts` | `CreateNetworkEventsHandler.cs` | Generate INetworkListener events script |
+
+### Phase 7 — See README.md roadmap
 
 ---
 

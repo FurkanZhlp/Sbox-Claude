@@ -140,6 +140,22 @@ public class BridgeAddon
 		BridgeServer.RegisterHandler( "create_game_manager", new CreateGameManagerHandler() );
 		BridgeServer.RegisterHandler( "create_trigger_zone", new CreateTriggerZoneHandler() );
 
-		Log.Info( "[SboxBridge] All Phase 1–5 command handlers registered (68 tools)" );
+		// Phase 6.1 — Networking Setup
+		BridgeServer.RegisterHandler( "add_network_helper", new AddNetworkHelperHandler() );
+		BridgeServer.RegisterHandler( "configure_network", new ConfigureNetworkHandler() );
+		BridgeServer.RegisterHandler( "get_network_status", new GetNetworkStatusHandler() );
+
+		// Phase 6.2 — Networked Objects
+		BridgeServer.RegisterHandler( "network_spawn", new NetworkSpawnHandler() );
+		BridgeServer.RegisterHandler( "set_ownership", new SetOwnershipHandler() );
+		BridgeServer.RegisterHandler( "add_sync_property", new AddSyncPropertyHandler() );
+		BridgeServer.RegisterHandler( "add_rpc_method", new AddRpcMethodHandler() );
+
+		// Phase 6.3 — Multiplayer Templates
+		BridgeServer.RegisterHandler( "create_networked_player", new CreateNetworkedPlayerHandler() );
+		BridgeServer.RegisterHandler( "create_lobby_manager", new CreateLobbyManagerHandler() );
+		BridgeServer.RegisterHandler( "create_network_events", new CreateNetworkEventsHandler() );
+
+		Log.Info( "[SboxBridge] All Phase 1–6 command handlers registered (78 tools)" );
 	}
 }

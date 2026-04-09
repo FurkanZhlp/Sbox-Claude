@@ -110,7 +110,7 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 
 </details>
 
-## Available Tools (68)
+## Available Tools (78)
 
 ### Project & Files
 | Tool | What It Does |
@@ -244,6 +244,20 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 | `create_game_manager` | Generate game manager with score, timer, spawning |
 | `create_trigger_zone` | Generate trigger volume with enter/exit callbacks |
 
+### Networking & Multiplayer
+| Tool | What It Does |
+|------|-------------|
+| `add_network_helper` | Add NetworkHelper component for quick multiplayer setup |
+| `configure_network` | Set max players, lobby name, player prefab |
+| `get_network_status` | Check connection state, player count, lobby info |
+| `network_spawn` | Network-enable a GameObject (sync across clients) |
+| `set_ownership` | Transfer/take/drop network ownership of an object |
+| `add_sync_property` | Add a [Sync] replicated property to a script |
+| `add_rpc_method` | Add an RPC method ([Rpc.Broadcast/Host/Owner]) to a script |
+| `create_networked_player` | Generate network-aware player with sync + RPCs |
+| `create_lobby_manager` | Generate lobby create/join/leave management script |
+| `create_network_events` | Generate INetworkListener event handler script |
+
 ### Diagnostics
 | Tool | What It Does |
 |------|-------------|
@@ -255,6 +269,10 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 |----------|---------|-------------|
 | `SBOX_BRIDGE_HOST` | `127.0.0.1` | Bridge WebSocket host |
 | `SBOX_BRIDGE_PORT` | `29015` | Bridge WebSocket port |
+
+## Testing
+
+See **[TESTING.md](TESTING.md)** for the full test plan covering all 78 tools, integration scenarios, security tests, and performance benchmarks.
 
 ## Troubleshooting
 
@@ -273,7 +291,7 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 - **Phase 3** ✅ Assets & Resources — asset browser, materials, models, audio (12 tools)
 - **Phase 4** ✅ Play & Test — play mode, runtime debugging, screenshots, undo/redo (11 tools)
 - **Phase 5** ✅ Game Logic — prefabs, physics, UI system, player/NPC templates (15 tools)
-- **Phase 6** 🔲 Multiplayer — networking, RPCs, local testing
+- **Phase 6** ✅ Multiplayer — networking, lobbies, sync properties, RPCs (10 tools)
 - **Phase 7** 🔲 Publishing — build, export, Steam Workshop
 
 ## License
