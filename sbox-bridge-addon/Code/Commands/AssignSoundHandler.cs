@@ -38,7 +38,10 @@ public class AssignSoundHandler : ICommandHandler
 		}
 
 		// Assign the sound event
-		soundComponent.SoundEvent = SoundEvent.Load( soundEvent );
+		var loadedSound = SoundEvent.Load( soundEvent );
+		if ( loadedSound == null )
+			throw new Exception( $"Failed to load sound event: {soundEvent}" );
+		soundComponent.SoundEvent = loadedSound;
 
 		// Optionally set playback properties
 		if ( parameters.TryGetProperty( "playOnStart", out var playProp ) )

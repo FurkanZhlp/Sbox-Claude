@@ -24,7 +24,7 @@ public class SearchAssetsHandler : ICommandHandler
 			: "";
 
 		var maxResults = parameters.TryGetProperty( "maxResults", out var maxProp )
-			? maxProp.GetInt32() : 50;
+			? Math.Clamp( maxProp.GetInt32(), 1, 500 ) : 50;
 
 		var results = new List<object>();
 

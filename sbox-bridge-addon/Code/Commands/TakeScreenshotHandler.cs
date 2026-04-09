@@ -56,8 +56,9 @@ public class TakeScreenshotHandler : ICommandHandler
 			var texture = camera.RenderToTexture();
 			texture.Save( fullPath );
 		}
-		catch ( Exception )
+		catch ( Exception ex )
 		{
+			Log.Warning( $"[SboxBridge] Screenshot capture failed: {ex.Message}" );
 			// Fallback: create a placeholder file indicating screenshot was requested
 			// This path is hit when running without the real s&box SDK
 			File.WriteAllText( fullPath + ".txt",

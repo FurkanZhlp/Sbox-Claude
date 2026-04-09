@@ -12,7 +12,7 @@ public class GetConsoleOutputHandler : ICommandHandler
 	public Task<object> Execute( JsonElement parameters )
 	{
 		var count = parameters.TryGetProperty( "count", out var countProp )
-			? countProp.GetInt32() : 50;
+			? System.Math.Clamp( countProp.GetInt32(), 1, 1000 ) : 50;
 		var severity = parameters.TryGetProperty( "severity", out var sevProp )
 			? sevProp.GetString() ?? "all" : "all";
 

@@ -30,7 +30,7 @@ public class GetSceneHierarchyHandler : ICommandHandler
 
 		var tree = rootObjects.Select( go => BuildNode( go, 0, maxDepth ) ).ToList();
 
-		var totalCount = CountNodes( tree );
+		var totalCount = rootObjects.Sum( go => CountNodes( go ) );
 
 		return Task.FromResult<object>( new
 		{
@@ -71,9 +71,11 @@ public class GetSceneHierarchyHandler : ICommandHandler
 		};
 	}
 
-	private static int CountNodes( List<object> nodes )
+	private static int CountNodes( GameObject go )
 	{
-		// Approximate count — each node is 1 plus its children
-		return nodes.Count;
+		int count = 1;
+		foreach ( var child in go.Children )
+			count += CountNodes( child );
+		return count;
 	}
 }

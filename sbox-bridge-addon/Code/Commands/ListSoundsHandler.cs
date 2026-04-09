@@ -19,7 +19,7 @@ public class ListSoundsHandler : ICommandHandler
 			: "";
 
 		var maxResults = parameters.TryGetProperty( "maxResults", out var maxProp )
-			? maxProp.GetInt32() : 50;
+			? Math.Clamp( maxProp.GetInt32(), 1, 500 ) : 50;
 
 		var sounds = new List<object>();
 

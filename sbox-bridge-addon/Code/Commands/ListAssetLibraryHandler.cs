@@ -24,7 +24,7 @@ public class ListAssetLibraryHandler : ICommandHandler
 			: "";
 
 		var maxResults = parameters.TryGetProperty( "maxResults", out var maxProp )
-			? maxProp.GetInt32() : 25;
+			? System.Math.Clamp( maxProp.GetInt32(), 1, 500 ) : 25;
 
 		// Use Package.FindAsync or similar s&box API to search community packages
 		// For now, list installed/referenced packages

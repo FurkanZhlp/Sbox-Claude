@@ -143,6 +143,10 @@ public static class BridgeServer
 		{
 			Log.Warning( $"[SboxBridge] Client error: {ex.Message}" );
 		}
+		finally
+		{
+			ws.Dispose();
+		}
 
 		Log.Info( "[SboxBridge] MCP client disconnected" );
 	}
@@ -221,7 +225,7 @@ public static class BridgeServer
 
 			if ( string.IsNullOrEmpty( command ) )
 			{
-				results.Add( new { success = false, error = "Missing command", errorCode = ErrorInvalidRequest } );
+				results.Add( new { command = (string)null, success = false, error = "Missing command", errorCode = ErrorInvalidRequest } );
 				continue;
 			}
 

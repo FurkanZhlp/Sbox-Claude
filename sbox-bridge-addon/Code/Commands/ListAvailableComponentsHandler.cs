@@ -60,7 +60,10 @@ public class ListAvailableComponentsHandler : ICommandHandler
 			} );
 		}
 
-		var sorted = components.OrderBy( c => c.ToString() ).ToList();
+		var sorted = components
+			.OrderBy( c => ((dynamic)c).group )
+			.ThenBy( c => ((dynamic)c).name )
+			.ToList();
 
 		return Task.FromResult<object>( new
 		{
