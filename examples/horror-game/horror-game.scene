@@ -1,0 +1,127 @@
+{
+  "__comment": "s&box scene file — reference JSON layout for the horror-game example.",
+  "__format_note": "Real s&box .scene files are JSON; copy this structure into the editor or import via File > Open Scene.",
+  "scene": {
+    "name": "horror-game",
+    "timeSettings": { "fixedUpdateRate": 50 },
+    "networkMode": 0
+  },
+  "gameObjects": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "GameManager",
+      "enabled": true,
+      "position": { "x": 0, "y": 0, "z": 0 },
+      "rotation": { "pitch": 0, "yaw": 0, "roll": 0 },
+      "scale":    { "x": 1, "y": 1, "z": 1 },
+      "components": [
+        { "__type": "HorrorGame.GameManagerComponent" }
+      ],
+      "children": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "Player",
+      "enabled": true,
+      "position": { "x": 0, "y": 0, "z": 0 },
+      "rotation": { "pitch": 0, "yaw": 0, "roll": 0 },
+      "scale":    { "x": 1, "y": 1, "z": 1 },
+      "components": [
+        {
+          "__type": "HorrorGame.PlayerController",
+          "walkSpeed": 180.0,
+          "crouchSpeed": 90.0,
+          "crouchHeightScale": 0.5,
+          "mouseSensitivity": 0.15,
+          "cameraObject": "00000000-0000-0000-0000-000000000003"
+        },
+        {
+          "__type": "Sandbox.CharacterController",
+          "radius": 16,
+          "height": 72,
+          "stepHeight": 18
+        }
+      ],
+      "children": [
+        {
+          "id": "00000000-0000-0000-0000-000000000003",
+          "name": "Camera",
+          "enabled": true,
+          "position": { "x": 0, "y": 0, "z": 60 },
+          "rotation": { "pitch": 0, "yaw": 0, "roll": 0 },
+          "scale":    { "x": 1, "y": 1, "z": 1 },
+          "components": [
+            {
+              "__type": "Sandbox.CameraComponent",
+              "fieldOfView": 90,
+              "zNear": 1,
+              "zFar": 8192
+            }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "name": "Monster",
+      "enabled": true,
+      "position": { "x": 400, "y": 0, "z": 0 },
+      "rotation": { "pitch": 0, "yaw": 180, "roll": 0 },
+      "scale":    { "x": 1, "y": 1, "z": 1 },
+      "components": [
+        {
+          "__type": "HorrorGame.MonsterAI",
+          "sightRange": 600.0,
+          "hearingRange": 400.0,
+          "moveSpeed": 240.0
+        },
+        {
+          "__type": "Sandbox.SkinnedModelRenderer",
+          "model": "models/citizen/citizen.vmdl"
+        }
+      ],
+      "children": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "name": "Environment",
+      "enabled": true,
+      "position": { "x": 0, "y": 0, "z": 0 },
+      "rotation": { "pitch": 0, "yaw": 0, "roll": 0 },
+      "scale":    { "x": 1, "y": 1, "z": 1 },
+      "components": [],
+      "children": [
+        {
+          "id": "00000000-0000-0000-0000-000000000006",
+          "name": "Floor",
+          "enabled": true,
+          "position": { "x": 0, "y": 0, "z": -1 },
+          "rotation": { "pitch": 0, "yaw": 0, "roll": 0 },
+          "scale":    { "x": 1000, "y": 1000, "z": 2 },
+          "components": [
+            { "__type": "Sandbox.ModelRenderer", "model": "models/dev/box.vmdl" },
+            { "__type": "Sandbox.ModelCollider" }
+          ],
+          "children": []
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "name": "Lighting",
+      "enabled": true,
+      "position": { "x": 0, "y": 0, "z": 300 },
+      "rotation": { "pitch": -90, "yaw": 0, "roll": 0 },
+      "scale":    { "x": 1, "y": 1, "z": 1 },
+      "components": [
+        {
+          "__type": "Sandbox.DirectionalLight",
+          "lightColor": { "r": 0.05, "g": 0.05, "b": 0.1, "a": 1.0 },
+          "brightness": 0.3
+        }
+      ],
+      "children": []
+    }
+  ]
+}

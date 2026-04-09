@@ -1,0 +1,9 @@
+{
+  "Title": "Claude Bridge",
+  "Description": "WebSocket MCP bridge for Claude AI integration with the s&box editor",
+  "Author": "",
+  "Tags": "editor, tool, ai, mcp",
+  "Ident": "claude_bridge",
+  "PackageType": "tool",
+  "EditorOnly": true
+}

@@ -1,0 +1,9 @@
+<Project Sdk="Sandbox.Game.Sdk/3.0.0">
+  <PropertyGroup>
+    <RootNamespace>SboxClaude</RootNamespace>
+    <AssemblyName>claude_bridge</AssemblyName>
+    <Description>Claude AI MCP Bridge — WebSocket server for s&amp;box editor integration</Description>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
