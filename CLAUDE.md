@@ -258,7 +258,7 @@ registerYourTools(server, bridge);
 - One handler class per command in `Code/Commands/`
 - Class name = `{CommandPascalCase}Handler` (e.g. `GetProjectInfoHandler`)
 - All file paths are **relative to s&box project root**
-- Always validate paths stay within project dir: `fullPath.StartsWith(projectRoot)`
+- Always validate paths stay within project dir: normalize `projectRoot` with trailing separator, then `fullPath.StartsWith(projectRoot)`
 - Use s&box's `Log.Info()` / `Log.Warning()` for debug output
 - Tab indentation, Allman-ish braces with s&box spacing style
 
