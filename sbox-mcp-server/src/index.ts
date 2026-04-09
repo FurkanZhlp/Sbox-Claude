@@ -33,6 +33,7 @@ import { registerPhysicsTools } from "./tools/physics.js";
 import { registerUITools } from "./tools/ui.js";
 import { registerTemplateTools } from "./tools/templates.js";
 import { registerNetworkingTools } from "./tools/networking.js";
+import { registerPublishingTools } from "./tools/publishing.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -71,7 +72,7 @@ ENVIRONMENT VARIABLES
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
-TOOLS (78 total)
+TOOLS (88 total)
   Project:     get_project_info, list_project_files, read_file, write_file
   Scripts:     create_script, edit_script, delete_script, trigger_hotload
   Console:     get_console_output, get_compile_errors, clear_console
@@ -91,6 +92,8 @@ TOOLS (78 total)
   Templates:   create_player_controller, create_npc_controller, create_game_manager, create_trigger_zone
   Networking:  add_network_helper, configure_network, get_network_status, network_spawn, set_ownership
   Net Scripts: add_sync_property, add_rpc_method, create_networked_player, create_lobby_manager, create_network_events
+  Publishing:  get_project_config, set_project_config, validate_project, build_project, get_build_status, clean_build
+  Export:      export_project, set_project_thumbnail, get_package_details, prepare_publish
   Status:      get_bridge_status
 `);
   process.exit(0);
@@ -125,6 +128,7 @@ registerPhysicsTools(server, bridge);
 registerUITools(server, bridge);
 registerTemplateTools(server, bridge);
 registerNetworkingTools(server, bridge);
+registerPublishingTools(server, bridge);
 
 /** Start the MCP server on stdio and attempt initial Bridge connection. */
 async function main(): Promise<void> {

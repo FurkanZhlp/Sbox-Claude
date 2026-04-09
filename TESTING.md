@@ -279,6 +279,60 @@ These test multi-tool workflows that simulate real user scenarios.
 6. get_compile_errors → verify clean
 ```
 
+### Scenario 6: Publish Workflow
+
+```
+1. get_project_config → read current config
+2. set_project_config → set title, description, version
+3. set_project_thumbnail → add thumb.png
+4. build_project → full build
+5. get_build_status → verify no errors
+6. validate_project → check all requirements
+7. prepare_publish → comprehensive readiness report
+```
+
+---
+
+## Phase 7 — Publishing (10 tools)
+
+### Project Configuration
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 97 | `get_project_config` | Call with no params | Returns full .sbproj config including title, type, metadata, raw JSON | [ ] |
+| 98 | `set_project_config` | Set `title: "Test Game"` | Title updated, saved to .sbproj | [ ] |
+| 99 | `set_project_config` | Set `description`, `version`, `summary` | All fields updated | [ ] |
+| 100 | `set_project_config` | Set `type: "game"` | Project type changed | [ ] |
+| 101 | `set_project_config` | Set `isPublic: true` | Metadata.Public set to true | [ ] |
+| 102 | `validate_project` | Call on project with title + scenes | Returns valid: true with all checks passed | [ ] |
+| 103 | `validate_project` | Call on project missing title | Returns valid: false, title check failed | [ ] |
+
+### Build
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 104 | `build_project` | Call with default (Release) | Build triggers, returns success + error count | [ ] |
+| 105 | `build_project` | Call with `configuration: "Debug"` | Debug build triggers | [ ] |
+| 106 | `build_project` | Call after introducing syntax error | Returns success: false with error details | [ ] |
+| 107 | `get_build_status` | Call after successful build | Returns success: true, errorCount: 0 | [ ] |
+| 108 | `get_build_status` | Call after failed build | Returns diagnostics with file/line/message | [ ] |
+| 109 | `clean_build` | Call on project with bin/obj dirs | Directories cleaned, rebuild triggered | [ ] |
+
+### Export & Publish
+
+| # | Tool | Test Steps | Expected Result | Status |
+|---|------|-----------|-----------------|--------|
+| 110 | `export_project` | Call with default output path | Project exported to export/ directory | [ ] |
+| 111 | `export_project` | Call with custom `outputPath` | Files copied to specified directory | [ ] |
+| 112 | `export_project` | Call with path traversal attempt | Error: path must be within project | [ ] |
+| 113 | `set_project_thumbnail` | Set via `sourcePath` to existing PNG | thumb.png created from source | [ ] |
+| 114 | `set_project_thumbnail` | Set via `base64` data | Image written from base64 | [ ] |
+| 115 | `set_project_thumbnail` | Source path outside project | Error: path must be within project | [ ] |
+| 116 | `get_package_details` | Fetch known package (e.g. "facepunch.flatgrass") | Returns title, author, downloads, version | [ ] |
+| 117 | `get_package_details` | Fetch non-existent package | Error: Package not found | [ ] |
+| 118 | `prepare_publish` | Call on ready project | Returns ready: true, no issues | [ ] |
+| 119 | `prepare_publish` | Call on project missing metadata | Returns ready: false, lists missing fields | [ ] |
+
 ---
 
 ## Security Tests
@@ -292,6 +346,8 @@ These test multi-tool workflows that simulate real user scenarios.
 | S5 | Large input | `get_console_output` with `maxResults: 999999` | Clamped to 1000, no crash |
 | S6 | Invalid GUID | `delete_gameobject` with `not-a-guid` | Error: Invalid GUID |
 | S7 | Missing object | `get_property` with random valid GUID | Error: GameObject not found |
+| S8 | Path traversal (export) | `export_project` with `../../tmp` | Error: path must be within project |
+| S9 | Path traversal (thumbnail) | `set_project_thumbnail` with `../../etc/passwd` | Error: path must be within project |
 
 ---
 
@@ -323,4 +379,5 @@ These test multi-tool workflows that simulate real user scenarios.
 - Some s&box APIs have `API-NOTE` comments in handlers — these may need adjustment for your specific SDK version.
 - The `take_screenshot` tool uses a placeholder until camera render API is verified.
 - Networking tests (Phase 6) require either a running lobby or may only verify setup/code generation.
+- Publishing tests (Phase 7) may need adjustment based on s&box SDK version — build/export APIs have `API-NOTE` comments.
 - Run security tests in an isolated environment to prevent accidental file modifications.

@@ -3,7 +3,7 @@
   "Type": "library",
   "Org": "sbox-claude",
   "Ident": "claude-bridge",
-  "Description": "Bridge addon that enables Claude Code to interact with the s&box editor via MCP. Lets non-coders build games through conversation — 53 tools for scripts, scenes, GameObjects, components, assets, materials, audio, play mode, and more.",
+  "Description": "Bridge addon that enables Claude Code to interact with the s&box editor via MCP. Lets non-coders build games through conversation — 88 tools for scripts, scenes, GameObjects, components, assets, materials, audio, play mode, prefabs, physics, UI, networking, building, exporting, and publishing.",
   "Version": "1.0.0",
 
   "PackageReferences": [],

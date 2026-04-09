@@ -156,6 +156,22 @@ public class BridgeAddon
 		BridgeServer.RegisterHandler( "create_lobby_manager", new CreateLobbyManagerHandler() );
 		BridgeServer.RegisterHandler( "create_network_events", new CreateNetworkEventsHandler() );
 
-		Log.Info( "[SboxBridge] All Phase 1–6 command handlers registered (78 tools)" );
+		// Phase 7.1 — Project Configuration (for publishing)
+		BridgeServer.RegisterHandler( "get_project_config", new GetProjectConfigHandler() );
+		BridgeServer.RegisterHandler( "set_project_config", new SetProjectConfigHandler() );
+		BridgeServer.RegisterHandler( "validate_project", new ValidateProjectHandler() );
+
+		// Phase 7.2 — Build
+		BridgeServer.RegisterHandler( "build_project", new BuildProjectHandler() );
+		BridgeServer.RegisterHandler( "get_build_status", new GetBuildStatusHandler() );
+		BridgeServer.RegisterHandler( "clean_build", new CleanBuildHandler() );
+
+		// Phase 7.3 — Export & Publish
+		BridgeServer.RegisterHandler( "export_project", new ExportProjectHandler() );
+		BridgeServer.RegisterHandler( "set_project_thumbnail", new SetProjectThumbnailHandler() );
+		BridgeServer.RegisterHandler( "get_package_details", new GetPackageDetailsHandler() );
+		BridgeServer.RegisterHandler( "prepare_publish", new PreparePublishHandler() );
+
+		Log.Info( "[SboxBridge] All Phase 1–7 command handlers registered (88 tools)" );
 	}
 }

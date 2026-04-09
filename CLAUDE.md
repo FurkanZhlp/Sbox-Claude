@@ -2,11 +2,11 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: Phase 6 Complete — Phase 7 Next
+## Status: Phase 7 Complete — All Phases Done
 
 **Last updated:** 2026-04-09
-**Current phase:** Phase 6 (Multiplayer) ✅ — 78 tools implemented
-**Next up:** Phase 7 (Publishing) — build, export, Steam Workshop
+**Current phase:** Phase 7 (Publishing) ✅ — 88 tools implemented
+**All 7 phases complete.** Full feature set: project management, scene building, assets, play mode, game logic, multiplayer, and publishing.
 
 ---
 
@@ -61,6 +61,7 @@ Sbox-Claude/
 │   │       ├── ui.ts                 # create_razor_ui, add_screen_panel, add_world_panel
 │   │       ├── templates.ts          # create_player_controller, create_npc_controller, create_game_manager, create_trigger_zone
 │   │       ├── networking.ts         # add_network_helper, configure_network, network_spawn, set_ownership, RPCs, sync, templates
+│   │       ├── publishing.ts        # get/set_project_config, validate, build, export, thumbnail, package details, publish
 │   │       └── status.ts             # get_bridge_status diagnostic tool
 │   └── dist/                          # Compiled JS (gitignored, built with `npm run build`)
 │
@@ -145,7 +146,17 @@ Sbox-Claude/
             ├── AddRpcMethodHandler.cs
             ├── CreateNetworkedPlayerHandler.cs
             ├── CreateLobbyManagerHandler.cs
-            └── CreateNetworkEventsHandler.cs
+            ├── CreateNetworkEventsHandler.cs
+            ├── GetProjectConfigHandler.cs
+            ├── SetProjectConfigHandler.cs
+            ├── ValidateProjectHandler.cs
+            ├── BuildProjectHandler.cs
+            ├── GetBuildStatusHandler.cs
+            ├── CleanBuildHandler.cs
+            ├── ExportProjectHandler.cs
+            ├── SetProjectThumbnailHandler.cs
+            ├── GetPackageDetailsHandler.cs
+            └── PreparePublishHandler.cs
 ```
 
 ---
@@ -260,7 +271,20 @@ Sbox-Claude/
 | `create_lobby_manager` | `tools/networking.ts` | `CreateLobbyManagerHandler.cs` | Generate lobby management script |
 | `create_network_events` | `tools/networking.ts` | `CreateNetworkEventsHandler.cs` | Generate INetworkListener events script |
 
-### Phase 7 — See README.md roadmap
+### Phase 7 — Publishing (10 tools) ✅
+
+| Tool | MCP File | Bridge Handler | What It Does |
+|------|----------|----------------|-------------|
+| `get_project_config` | `tools/publishing.ts` | `GetProjectConfigHandler.cs` | Read full .sbproj configuration |
+| `set_project_config` | `tools/publishing.ts` | `SetProjectConfigHandler.cs` | Update title, description, version, type, metadata |
+| `validate_project` | `tools/publishing.ts` | `ValidateProjectHandler.cs` | Check project readiness for publishing |
+| `build_project` | `tools/publishing.ts` | `BuildProjectHandler.cs` | Trigger full project build/recompilation |
+| `get_build_status` | `tools/publishing.ts` | `GetBuildStatusHandler.cs` | Build state, errors, warnings, diagnostics |
+| `clean_build` | `tools/publishing.ts` | `CleanBuildHandler.cs` | Clean compiled output and rebuild |
+| `export_project` | `tools/publishing.ts` | `ExportProjectHandler.cs` | Export project as standalone game |
+| `set_project_thumbnail` | `tools/publishing.ts` | `SetProjectThumbnailHandler.cs` | Set project thumbnail for publishing |
+| `get_package_details` | `tools/publishing.ts` | `GetPackageDetailsHandler.cs` | Fetch package info from asset.party |
+| `prepare_publish` | `tools/publishing.ts` | `PreparePublishHandler.cs` | Comprehensive publish readiness report |
 
 ---
 

@@ -110,7 +110,7 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 
 </details>
 
-## Available Tools (78)
+## Available Tools (88)
 
 ### Project & Files
 | Tool | What It Does |
@@ -258,6 +258,20 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 | `create_lobby_manager` | Generate lobby create/join/leave management script |
 | `create_network_events` | Generate INetworkListener event handler script |
 
+### Publishing & Build
+| Tool | What It Does |
+|------|-------------|
+| `get_project_config` | Read full .sbproj configuration |
+| `set_project_config` | Update title, description, version, type, metadata |
+| `validate_project` | Check project readiness for publishing |
+| `build_project` | Trigger full project build/recompilation |
+| `get_build_status` | Current build state, errors, warnings, diagnostics |
+| `clean_build` | Clean compiled output and rebuild from scratch |
+| `export_project` | Export project as standalone game |
+| `set_project_thumbnail` | Set project thumbnail image for publishing |
+| `get_package_details` | Fetch package info from asset.party |
+| `prepare_publish` | Comprehensive publish readiness report |
+
 ### Diagnostics
 | Tool | What It Does |
 |------|-------------|
@@ -272,7 +286,7 @@ Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
 
 ## Testing
 
-See **[TESTING.md](TESTING.md)** for the full test plan covering all 78 tools, integration scenarios, security tests, and performance benchmarks.
+See **[TESTING.md](TESTING.md)** for the full test plan covering all 88 tools, integration scenarios, security tests, and performance benchmarks.
 
 ## Troubleshooting
 
@@ -292,7 +306,7 @@ See **[TESTING.md](TESTING.md)** for the full test plan covering all 78 tools, i
 - **Phase 4** ✅ Play & Test — play mode, runtime debugging, screenshots, undo/redo (11 tools)
 - **Phase 5** ✅ Game Logic — prefabs, physics, UI system, player/NPC templates (15 tools)
 - **Phase 6** ✅ Multiplayer — networking, lobbies, sync properties, RPCs (10 tools)
-- **Phase 7** 🔲 Publishing — build, export, Steam Workshop
+- **Phase 7** ✅ Publishing — build, export, project config, publish preparation (10 tools)
 
 ## License
 
