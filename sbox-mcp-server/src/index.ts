@@ -16,6 +16,7 @@ import { registerAssetTools } from "./tools/assets.js";
 import { registerMaterialTools } from "./tools/materials.js";
 import { registerAudioTools } from "./tools/audio.js";
 import { registerStatusTools } from "./tools/status.js";
+import { registerPlayModeTools } from "./tools/playmode.js";
 
 // ── CLI flags ──────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -53,17 +54,20 @@ ENVIRONMENT VARIABLES
 CONNECT TO CLAUDE CODE
   claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 
-TOOLS (42 total)
+TOOLS (53 total)
   Project:     get_project_info, list_project_files, read_file, write_file
   Scripts:     create_script, edit_script, delete_script, trigger_hotload
   Console:     get_console_output, get_compile_errors, clear_console
   Scenes:      list_scenes, load_scene, save_scene, create_scene
   GameObjects: create/delete/duplicate/rename_gameobject, set_parent/enabled/transform
-  Components:  get_property, get_all_properties, list_available_components, add_component_with_properties
+  Components:  get/set_property, get_all_properties, list_available_components, add_component_with_properties
   Hierarchy:   get_scene_hierarchy, get_selected_objects, select_object, focus_object
   Assets:      search_assets, list_asset_library, install_asset, get_asset_info
   Materials:   assign_model, create_material, assign_material, set_material_property
   Audio:       list_sounds, create_sound_event, assign_sound, play_sound_preview
+  Play Mode:   start/stop/pause/resume_play, is_playing
+  Runtime:     get/set_runtime_property, take_screenshot
+  Editor:      undo, redo
   Status:      get_bridge_status
 `);
   process.exit(0);
@@ -92,6 +96,7 @@ registerAssetTools(server, bridge);
 registerMaterialTools(server, bridge);
 registerAudioTools(server, bridge);
 registerStatusTools(server, bridge);
+registerPlayModeTools(server, bridge);
 
 // Start the server with stdio transport
 async function main(): Promise<void> {

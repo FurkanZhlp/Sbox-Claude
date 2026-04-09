@@ -164,41 +164,86 @@ public static class BridgeServer
 			var root = doc.RootElement;
 
 			id = root.TryGetProperty( "id", out var idProp ) ? idProp.GetString() : null;
-			var command = root.TryGetProperty( "command", out var cmdProp ) ? cmdProp.GetString() : null;
 
-			// Validate required fields
+			// Validate id
 			if ( string.IsNullOrEmpty( id ) )
 				return MakeError( null, ErrorInvalidRequest, "Missing or empty 'id' field" );
+
+			// ── Batch request: { id, commands: [...] } ──
+			if ( root.TryGetProperty( "commands", out var commandsArray ) &&
+			     commandsArray.ValueKind == JsonValueKind.Array )
+			{
+				return await ProcessBatch( id, commandsArray );
+			}
+
+			// ── Single request: { id, command, params } ──
+			var command = root.TryGetProperty( "command", out var cmdProp ) ? cmdProp.GetString() : null;
 
 			if ( string.IsNullOrEmpty( command ) )
 				return MakeError( id, ErrorInvalidRequest, "Missing or empty 'command' field" );
 
 			var paramsElement = root.TryGetProperty( "params", out var p ) ? p : default;
 
-			if ( _handlers.TryGetValue( command, out var handler ) )
-			{
-				try
-				{
-					var result = await handler.Execute( paramsElement );
-					return JsonSerializer.Serialize( new
-					{
-						id,
-						success = true,
-						data = result
-					} );
-				}
-				catch ( Exception ex )
-				{
-					return MakeError( id, ErrorHandlerError, ex.Message );
-				}
-			}
-
-			return MakeError( id, ErrorUnknownCommand, $"Unknown command: {command}" );
+			return await ExecuteSingle( id, command, paramsElement );
 		}
 		catch ( Exception ex )
 		{
 			return MakeError( id, ErrorInvalidRequest, $"Failed to parse request: {ex.Message}" );
 		}
+	}
+
+	private static async Task<string> ExecuteSingle( string id, string command, JsonElement paramsElement )
+	{
+		if ( _handlers.TryGetValue( command, out var handler ) )
+		{
+			try
+			{
+				var result = await handler.Execute( paramsElement );
+				return JsonSerializer.Serialize( new { id, success = true, data = result } );
+			}
+			catch ( Exception ex )
+			{
+				return MakeError( id, ErrorHandlerError, ex.Message );
+			}
+		}
+
+		return MakeError( id, ErrorUnknownCommand, $"Unknown command: {command}" );
+	}
+
+	private static async Task<string> ProcessBatch( string id, JsonElement commandsArray )
+	{
+		var results = new List<object>();
+
+		foreach ( var item in commandsArray.EnumerateArray() )
+		{
+			var command = item.TryGetProperty( "command", out var cmdProp ) ? cmdProp.GetString() : null;
+			var paramsElement = item.TryGetProperty( "params", out var p ) ? p : default;
+
+			if ( string.IsNullOrEmpty( command ) )
+			{
+				results.Add( new { success = false, error = "Missing command", errorCode = ErrorInvalidRequest } );
+				continue;
+			}
+
+			if ( _handlers.TryGetValue( command, out var handler ) )
+			{
+				try
+				{
+					var result = await handler.Execute( paramsElement );
+					results.Add( new { command, success = true, data = result } );
+				}
+				catch ( Exception ex )
+				{
+					results.Add( new { command, success = false, error = ex.Message, errorCode = ErrorHandlerError } );
+				}
+			}
+			else
+			{
+				results.Add( new { command, success = false, error = $"Unknown command: {command}", errorCode = ErrorUnknownCommand } );
+			}
+		}
+
+		return JsonSerializer.Serialize( new { id, success = true, results } );
 	}
 
 	private static string MakeError( string id, string code, string message )

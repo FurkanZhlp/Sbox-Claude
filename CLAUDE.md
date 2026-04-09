@@ -2,11 +2,11 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: Phase 3 Complete — Phase 4 Next
+## Status: Phase 4 Complete — Phase 5 Next
 
 **Last updated:** 2026-04-09
-**Current phase:** Phase 3 (Assets & Resources) ✅ — 42 tools implemented
-**Next up:** Phase 4 (Play & Test) — play mode control, runtime debugging, screenshots
+**Current phase:** Phase 4 (Play & Test) ✅ — 53 tools implemented
+**Next up:** Phase 5 (Game Logic Templates) — prefabs, player controllers, AI, UI systems
 
 ---
 
@@ -48,7 +48,9 @@ Sbox-Claude/
 │   │       ├── components.ts          # get_property, get_all_properties, list_available_components, add_component
 │   │       ├── assets.ts              # search_assets, list_asset_library, install_asset, get_asset_info
 │   │       ├── materials.ts           # assign_model, create_material, assign_material, set_material_property
-│   │       └── audio.ts              # list_sounds, create_sound_event, assign_sound, play_sound_preview
+│   │       ├── audio.ts              # list_sounds, create_sound_event, assign_sound, play_sound_preview
+│   │       ├── playmode.ts           # play mode control, runtime properties, screenshot, undo/redo, set_property
+│   │       └── status.ts             # get_bridge_status diagnostic tool
 │   └── dist/                          # Compiled JS (gitignored, built with `npm run build`)
 │
 └── sbox-bridge-addon/                 # s&box Bridge Addon (C#)
@@ -102,7 +104,12 @@ Sbox-Claude/
             ├── ListSoundsHandler.cs
             ├── CreateSoundEventHandler.cs
             ├── AssignSoundHandler.cs
-            └── PlaySoundPreviewHandler.cs
+            ├── PlaySoundPreviewHandler.cs
+            ├── PlayModeHandler.cs
+            ├── SetPropertyHandler.cs
+            ├── RuntimePropertyHandler.cs
+            ├── TakeScreenshotHandler.cs
+            └── UndoRedoHandler.cs
 ```
 
 ---
@@ -166,9 +173,21 @@ Sbox-Claude/
 | `assign_sound` | `tools/audio.ts` | `AssignSoundHandler.cs` | Attach sound to SoundPointComponent |
 | `play_sound_preview` | `tools/audio.ts` | `PlaySoundPreviewHandler.cs` | Preview sound in editor |
 
-### Phase 4 — Play & Test (NOT YET IMPLEMENTED)
+### Phase 4 — Play & Test (11 tools) ✅
 
-Planned tools: `start_play`, `stop_play`, `pause_play`, `resume_play`, `is_playing`, `get_runtime_objects`, `get_runtime_property`, `set_runtime_property`, `take_screenshot`, `undo`, `redo`
+| Tool | MCP File | Bridge Handler | What It Does |
+|------|----------|----------------|-------------|
+| `start_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Enter play mode |
+| `stop_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Exit play mode |
+| `pause_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Pause running game |
+| `resume_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Resume paused game |
+| `is_playing` | `tools/playmode.ts` | `PlayModeHandler.cs` | Check state: playing/paused/stopped |
+| `set_property` | `tools/playmode.ts` | `SetPropertyHandler.cs` | Write a component property (editor mode) |
+| `get_runtime_property` | `tools/playmode.ts` | `RuntimePropertyHandler.cs` | Read property during play mode |
+| `set_runtime_property` | `tools/playmode.ts` | `RuntimePropertyHandler.cs` | Write property during play mode |
+| `take_screenshot` | `tools/playmode.ts` | `TakeScreenshotHandler.cs` | Capture viewport as PNG |
+| `undo` | `tools/playmode.ts` | `UndoRedoHandler.cs` | Undo last editor action |
+| `redo` | `tools/playmode.ts` | `UndoRedoHandler.cs` | Redo last undone action |
 
 ### Phase 5–7 — See README.md roadmap
 
@@ -275,13 +294,47 @@ The Bridge Addon is compiled automatically by s&box when placed in the addons di
 
 ---
 
+## Troubleshooting
+
+### Bridge won't connect
+- Is s&box running? The editor must be open with the Bridge Addon installed
+- Check port: default is 29015, configurable via `SBOX_BRIDGE_PORT`
+- Run `get_bridge_status` to see connection state and latency
+- Firewall: ensure localhost:29015 isn't blocked
+
+### Commands timeout (30s)
+- The s&box editor may be frozen (compiling, loading assets)
+- Try `get_bridge_status` — if latency is -1, the connection is dead
+- Restart the MCP server and reconnect
+
+### Compile errors after script edit
+1. Run `get_compile_errors` to see what's broken (file, line, message)
+2. Fix with `edit_script` (find/replace the broken code)
+3. Run `trigger_hotload` to recompile
+4. Run `get_compile_errors` again to verify clean
+
+### Scene hierarchy is empty
+- No scene loaded — use `list_scenes` then `load_scene`
+- Scene exists but has no objects — use `create_gameobject` to add some
+
+### Play mode failures
+- `is_playing` returns current state — check before calling pause/resume
+- Runtime property tools throw if not in play mode — call `start_play` first
+- `stop_play` discards all runtime changes — save the scene first if needed
+
+### Screenshot returns placeholder
+- The screenshot API (`Camera.RenderToTexture()`) needs real s&box SDK wiring
+- See `TakeScreenshotHandler.cs` for 3 candidate APIs to try
+
+---
+
 ## Known Limitations / TODO
 
-- [ ] Bridge Addon uses s&box APIs that need real editor testing (EditorScene, CompileErrors, etc.)
-- [ ] LogCapture hooks `Logger.OnMessage` — verify this event exists in current s&box version
-- [ ] `GetCompileErrorsHandler` uses `CompileErrors.Current` — may need different API path
-- [ ] `TriggerHotloadHandler` uses `EditorUtility.RestartCompiler()` — needs verification
-- [ ] No integration tests yet — need mock WebSocket server for MCP server tests
+- [ ] Several s&box APIs need verification against real SDK (see API-NOTE comments in handlers)
+- [ ] LogCapture has 3 candidate hook APIs — compile against SDK and uncomment the right one
+- [ ] `TakeScreenshotHandler` uses placeholder until camera render API is wired
+- [ ] `UndoRedoHandler` uses `Undo.PerformUndo()` — may need different API path
+- [ ] `EditorScene.IsPaused` in `IsPlayingHandler` — may not exist, fallback to playing/stopped only
 - [ ] No authentication on WebSocket — fine for localhost, would need auth for remote
-- [ ] Log buffer capped at 500 entries — may need tuning
 - [ ] `create_scene` generates JSON manually — should use s&box scene serialization if available
+- [ ] Batch commands run sequentially — could parallelize independent handlers

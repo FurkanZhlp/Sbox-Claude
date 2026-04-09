@@ -149,6 +149,48 @@ export class BridgeClient {
   }
 
   /**
+   * Send multiple commands in a single WebSocket message.
+   * The Bridge processes them sequentially and returns all results at once.
+   */
+  async sendBatch(
+    commands: Array<{ command: string; params?: Record<string, unknown> }>,
+    timeoutMs = 30000
+  ): Promise<BridgeResponse> {
+    if (!this.ws || !this.connected) {
+      try {
+        await this.connect();
+      } catch {
+        return {
+          id: "",
+          success: false,
+          error: "Not connected to s&box Bridge.",
+        };
+      }
+    }
+
+    const id = `batch_${++this.requestCounter}_${Date.now()}`;
+    const request = { id, commands };
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        resolve({
+          id,
+          success: false,
+          error: `Batch request timed out after ${timeoutMs}ms`,
+        });
+      }, timeoutMs);
+
+      this.pendingRequests.set(id, {
+        resolve,
+        reject: () => {},
+        timer,
+      });
+      this.ws!.send(JSON.stringify(request));
+    });
+  }
+
+  /**
    * Send a ping and measure round-trip latency in ms.
    * Returns -1 if not connected.
    */

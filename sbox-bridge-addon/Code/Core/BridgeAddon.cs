@@ -94,6 +94,23 @@ public class BridgeAddon
 		BridgeServer.RegisterHandler( "assign_sound", new AssignSoundHandler() );
 		BridgeServer.RegisterHandler( "play_sound_preview", new PlaySoundPreviewHandler() );
 
-		Log.Info( "[SboxBridge] All Phase 1–3 command handlers registered" );
+		// Phase 4.1 — Play Mode Control
+		BridgeServer.RegisterHandler( "start_play", new StartPlayHandler() );
+		BridgeServer.RegisterHandler( "stop_play", new StopPlayHandler() );
+		BridgeServer.RegisterHandler( "pause_play", new PausePlayHandler() );
+		BridgeServer.RegisterHandler( "resume_play", new ResumePlayHandler() );
+		BridgeServer.RegisterHandler( "is_playing", new IsPlayingHandler() );
+
+		// Phase 4.2 — Runtime Debugging
+		BridgeServer.RegisterHandler( "set_property", new SetPropertyHandler() );
+		BridgeServer.RegisterHandler( "get_runtime_property", new GetRuntimePropertyHandler() );
+		BridgeServer.RegisterHandler( "set_runtime_property", new SetRuntimePropertyHandler() );
+		BridgeServer.RegisterHandler( "take_screenshot", new TakeScreenshotHandler() );
+
+		// Phase 4.3 — Editor Undo/Redo
+		BridgeServer.RegisterHandler( "undo", new UndoHandler() );
+		BridgeServer.RegisterHandler( "redo", new RedoHandler() );
+
+		Log.Info( "[SboxBridge] All Phase 1–4 command handlers registered (53 tools)" );
 	}
 }
