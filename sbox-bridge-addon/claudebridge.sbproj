@@ -1,16 +1,20 @@
 {
-  "Title": "claude bridge",
+  "Title": "Claude Bridge",
   "Type": "library",
-  "Org": "local",
+  "Org": "sboxskinsgg",
   "Ident": "claudebridge",
   "Schema": 1,
-  "IncludeSourceFiles": false,
+  "Description": "Build s&box games through conversation with Claude AI. This MCP bridge connects Claude Code to the s&box editor, giving AI access to 78 tools for creating GameObjects, scripts, scenes, materials, physics, UI, networking, and more — all without writing a line of code yourself.",
+  "IncludeSourceFiles": true,
   "Resources": null,
   "PackageReferences": [],
   "EditorReferences": null,
   "Mounts": null,
   "IsStandaloneOnly": false,
   "Metadata": {
+    "Summary": "Let Claude AI build s&box games for you — 78 tools for scenes, scripts, physics, UI, networking & more",
+    "Public": true,
+    "Tags": "ai,claude,mcp,tool,editor,bridge,automation,code-generation",
     "Compiler": {
       "RootNamespace": "Sandbox",
       "DefineConstants": "SANDBOX",
