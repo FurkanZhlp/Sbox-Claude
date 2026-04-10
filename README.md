@@ -1,10 +1,10 @@
-# Sbox-Claude
+# s&box Claude Bridge
 
-Let non-coders build s&box games through conversation with Claude Code.
+> Let non-coders build s&box games through conversation with Claude Code.
 
 ## What This Does
 
-Claude Code connects to the s&box editor in real-time. You describe what you want — Claude writes the C# scripts, builds the scenes, reads the console errors, and iterates until it works. s&box hotloads everything instantly.
+Claude Code connects to the s&box editor in real-time. You describe what you want — Claude writes the C# scripts, builds the scenes, and iterates until it works.
 
 ```
 You: "Make me a horror game where I explore an abandoned hospital with a flashlight"
@@ -14,9 +14,9 @@ Claude: *creates scripts, builds scene, configures lighting, adds player control
 ## Architecture
 
 ```
-┌──────────────┐     stdio      ┌───────────────┐   WebSocket    ┌──────────────┐
+┌──────────────┐     stdio      ┌───────────────┐   file IPC     ┌──────────────┐
 │  Claude Code │ ◄────────────► │  MCP Server   │ ◄────────────► │ Bridge Addon │
-│              │                │  (Node.js)    │    :29015      │  (in s&box)  │
+│              │                │  (Node.js)    │   %TEMP%/      │  (in s&box)  │
 └──────────────┘                └───────────────┘                └──────┬───────┘
                                                                        │
                                                                        ▼
@@ -26,287 +26,90 @@ Claude: *creates scripts, builds scene, configures lighting, adds player control
                                                                 └──────────────┘
 ```
 
+Communication uses **file-based IPC** through `%TEMP%/sbox-bridge-ipc/` — the MCP server writes request JSON files, the bridge addon (running inside s&box) polls for them, processes on the main editor thread, and writes response files back.
+
 ## Quick Start
 
-### 1. Install the Bridge Addon in s&box
+### 1. Create the Bridge Library in s&box
 
-**Automatic (recommended):**
+1. Open s&box with your project
+2. Open **Library Manager** (in the editor)
+3. Create a new library called **"claudebridge"**
+4. Copy `sbox-bridge-addon/Editor/MyEditorMenu.cs` into the library's `Editor/` folder
+5. Restart s&box
 
-```powershell
-# Windows PowerShell
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
-.\install.ps1
-```
-
-```bash
-# Linux / WSL
-git clone https://github.com/lousputthole/sbox-claude.git
-cd sbox-claude
-./install.sh
-```
-
-The installer auto-detects your s&box installation and copies the Bridge Addon.
-
-**Manual:** Copy the `sbox-bridge-addon/` folder into your s&box addons directory. See [INSTALL.md](INSTALL.md) for detailed instructions.
-
-### 2. Connect Claude Code (one command)
-
-```bash
-claude mcp add sbox -- npx sbox-mcp-server
-```
-
-That's it. No building needed. `npx` downloads and runs the server automatically.
-
-### 3. Start Building
-
-Open s&box, open a project, and start talking to Claude:
-
-```
-"Create a first-person player controller with WASD movement and mouse look"
-"Add a flashlight to the player that toggles with F"
-"What compile errors are there? Fix them"
-"Create a new scene called level_01 with a camera and lights"
-"Search for a table model and place it in the scene"
-"Enter play mode and take a screenshot"
-```
-
-> For detailed setup, configuration, updating, and troubleshooting see **[INSTALL.md](INSTALL.md)**
-
-## Alternative Setup
-
-<details>
-<summary>Manual install (from source)</summary>
+### 2. Build the MCP Server
 
 ```bash
 git clone https://github.com/lousputthole/sbox-claude.git
 cd sbox-claude/sbox-mcp-server
 npm install
 npm run build
+```
+
+### 3. Connect Claude Code
+
+```bash
 claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
 ```
 
-</details>
+### 4. Open the Bridge Dock
 
-<details>
-<summary>JSON config (for Claude Code settings)</summary>
+In s&box, go to **View → Claude Bridge** to open the dock panel. This is required for scene-modifying operations to work (they must run on the main editor thread).
 
-Add to `~/.claude/claude_desktop_config.json` or your project's `.mcp.json`:
+### 5. Start Building
 
-```json
-{
-  "mcpServers": {
-    "sbox": {
-      "command": "npx",
-      "args": ["sbox-mcp-server"],
-      "env": {
-        "SBOX_BRIDGE_HOST": "127.0.0.1",
-        "SBOX_BRIDGE_PORT": "29015"
-      }
-    }
-  }
-}
+```
+"Create a first-person player controller with WASD movement and mouse look"
+"Add a cube at position 0,0,100 and give it a box model"
+"What scenes are in the project?"
+"Create a new script called EnemyAI with patrol behavior"
 ```
 
-</details>
+## Available Tools (61 active, 88 defined)
 
-## Available Tools (88)
+### Working & Tested
+| Category | Tools |
+|----------|-------|
+| **Project & Files** | `get_project_info`, `list_project_files`, `read_file`, `write_file` |
+| **Scripts** | `create_script`, `edit_script`, `delete_script` |
+| **Scenes** | `list_scenes`, `load_scene`, `save_scene`, `create_scene` |
+| **GameObjects** | `create_gameobject`, `delete_gameobject`, `duplicate_gameobject`, `rename_gameobject`, `set_parent`, `set_enabled`, `set_transform` |
+| **Hierarchy** | `get_scene_hierarchy`, `get_selected_objects`, `select_object`, `focus_object` |
+| **Components** | `get_property`, `set_property`, `get_all_properties`, `list_available_components`, `add_component_with_properties` |
+| **Play Mode** | `start_play`, `stop_play`, `is_playing`, `get_runtime_property`, `set_runtime_property` |
+| **Assets** | `search_assets`, `get_asset_info`, `assign_model`, `create_material`, `assign_material` |
+| **Audio** | `list_sounds`, `create_sound_event` |
+| **Prefabs** | `create_prefab`, `instantiate_prefab`, `list_prefabs`, `get_prefab_info` |
+| **Physics** | `add_physics`, `add_collider`, `raycast` |
+| **Templates** | `create_player_controller`, `create_npc_controller`, `create_game_manager`, `create_trigger_zone` |
+| **UI** | `create_razor_ui` |
+| **Networking** | `network_spawn`, `add_sync_property`, `add_rpc_method`, `create_networked_player`, `create_lobby_manager`, `create_network_events` |
+| **Publishing** | `get_project_config`, `set_project_config`, `validate_project`, `set_project_thumbnail` |
+| **Diagnostics** | `get_bridge_status` |
 
-### Project & Files
-| Tool | What It Does |
-|------|-------------|
-| `get_project_info` | Returns project path, name, type, dependencies |
-| `list_project_files` | Browse file tree, filter by directory/extension |
-| `read_file` | Read any project file contents |
-| `write_file` | Create/overwrite files, auto-creates directories |
+### Not Yet Implemented (API uncertain)
+`pause_play`, `resume_play`, `trigger_hotload`, `get_console_output`, `get_compile_errors`, `clear_console`, `take_screenshot`, `undo`, `redo`, `assign_sound`, `play_sound_preview`, `set_material_property`, `add_joint`, `add_screen_panel`, `add_world_panel`, `add_network_helper`, `configure_network`, `get_network_status`, `set_ownership`, `build_project`, `get_build_status`, `clean_build`, `export_project`, `get_package_details`, `prepare_publish`, `install_asset`, `list_asset_library`
 
-### Script Management
-| Tool | What It Does |
-|------|-------------|
-| `create_script` | Generate C# component with boilerplate or raw content |
-| `edit_script` | Find/replace, insert, append, delete lines in scripts |
-| `delete_script` | Remove script files from project |
-| `trigger_hotload` | Force recompile + hotload scripts |
+## Technical Notes
 
-### Console & Errors
-| Tool | What It Does |
-|------|-------------|
-| `get_console_output` | Read buffered log entries by severity |
-| `get_compile_errors` | Get diagnostics with file, line, column, message |
-| `clear_console` | Clear the log buffer |
+- **No WebSocket**: s&box's sandboxed C# doesn't allow `System.Net`. We use file-based IPC instead.
+- **Main thread required**: Scene APIs must run on the editor's main thread. A `[Dock]` widget with `[EditorEvent.Frame]` processes queued requests.
+- **Addon location**: Must be in the project's `Libraries/` folder, NOT the global `addons/` folder.
+- **API reference**: Download the full type schema from `sbox.game/api` for the definitive API.
 
-### Scenes
-| Tool | What It Does |
-|------|-------------|
-| `list_scenes` | Find all .scene files in project |
-| `load_scene` | Open a scene in the editor |
-| `save_scene` | Save the current scene |
-| `create_scene` | New scene with optional camera, light, ground |
+## Development
 
-### GameObjects
-| Tool | What It Does |
-|------|-------------|
-| `create_gameobject` | Create with name, position, rotation, scale, parent |
-| `delete_gameobject` | Remove by GUID |
-| `duplicate_gameobject` | Clone with all components, optional offset |
-| `rename_gameobject` | Change display name |
-| `set_parent` | Reparent (or move to root with null) |
-| `set_enabled` | Enable/disable object |
-| `set_transform` | Set position/rotation/scale (world or local) |
+```bash
+# Build MCP Server
+cd sbox-mcp-server && npm install && npm run build
 
-### Components
-| Tool | What It Does |
-|------|-------------|
-| `get_property` | Read a single component property value |
-| `set_property` | Write a component property (editor mode) |
-| `get_all_properties` | Dump all properties as JSON |
-| `list_available_components` | Browse all component types (built-in + custom) |
-| `add_component_with_properties` | Add component and set properties in one call |
+# Test IPC manually (PowerShell):
+echo '{"id":"test","command":"get_project_info","params":{}}' > $env:TEMP\sbox-bridge-ipc\req_test.json
+cat $env:TEMP\sbox-bridge-ipc\res_test.json
+```
 
-### Hierarchy & Selection
-| Tool | What It Does |
-|------|-------------|
-| `get_scene_hierarchy` | Full scene tree with GUIDs, components, positions |
-| `get_selected_objects` | What the user has selected in editor |
-| `select_object` | Programmatically select an object |
-| `focus_object` | Move editor camera to look at object |
-
-### Assets
-| Tool | What It Does |
-|------|-------------|
-| `search_assets` | Search project assets by name/type |
-| `list_asset_library` | Browse community asset packages |
-| `install_asset` | Add community package to project |
-| `get_asset_info` | Detailed asset metadata |
-
-### Materials & Models
-| Tool | What It Does |
-|------|-------------|
-| `assign_model` | Set model on ModelRenderer (auto-creates component) |
-| `create_material` | New .vmat with shader + properties |
-| `assign_material` | Apply material to renderer slot |
-| `set_material_property` | Change color, roughness, texture, etc. |
-
-### Audio
-| Tool | What It Does |
-|------|-------------|
-| `list_sounds` | Find sound assets in project |
-| `create_sound_event` | New .sound with volume, pitch, falloff settings |
-| `assign_sound` | Attach sound to SoundPointComponent |
-| `play_sound_preview` | Preview a sound in the editor |
-
-### Play Mode & Testing
-| Tool | What It Does |
-|------|-------------|
-| `start_play` | Enter play mode — run the game in editor |
-| `stop_play` | Exit play mode — return to editor |
-| `pause_play` | Pause running game |
-| `resume_play` | Resume paused game |
-| `is_playing` | Check state: playing / paused / stopped |
-| `get_runtime_property` | Read component property during play mode |
-| `set_runtime_property` | Write component property during play mode |
-| `take_screenshot` | Capture editor viewport as PNG |
-
-### Editor
-| Tool | What It Does |
-|------|-------------|
-| `undo` | Undo last editor action |
-| `redo` | Redo last undone action |
-
-### Prefabs
-| Tool | What It Does |
-|------|-------------|
-| `create_prefab` | Save a GameObject as a reusable .prefab file |
-| `instantiate_prefab` | Spawn a prefab instance into the scene |
-| `list_prefabs` | List all .prefab files in the project |
-| `get_prefab_info` | Read prefab metadata and contents |
-
-### Physics
-| Tool | What It Does |
-|------|-------------|
-| `add_physics` | Add Rigidbody + collider to make object dynamic |
-| `add_collider` | Add specific collider type (box, sphere, capsule, mesh, hull) |
-| `add_joint` | Add physics constraint between objects (fixed, spring, slider) |
-| `raycast` | Perform physics raycast and return hit results |
-
-### UI System
-| Tool | What It Does |
-|------|-------------|
-| `create_razor_ui` | Create a Razor UI component (.razor + .scss) with boilerplate |
-| `add_screen_panel` | Create ScreenPanel for full-screen UI overlay (HUD, menus) |
-| `add_world_panel` | Create WorldPanel for in-world 3D UI (health bars, signs) |
-
-### Game Logic Templates
-| Tool | What It Does |
-|------|-------------|
-| `create_player_controller` | Generate FPS/TPS player controller with movement, jumping, camera |
-| `create_npc_controller` | Generate NPC with NavMeshAgent patrol/chase AI |
-| `create_game_manager` | Generate game manager with score, timer, spawning |
-| `create_trigger_zone` | Generate trigger volume with enter/exit callbacks |
-
-### Networking & Multiplayer
-| Tool | What It Does |
-|------|-------------|
-| `add_network_helper` | Add NetworkHelper component for quick multiplayer setup |
-| `configure_network` | Set max players, lobby name, player prefab |
-| `get_network_status` | Check connection state, player count, lobby info |
-| `network_spawn` | Network-enable a GameObject (sync across clients) |
-| `set_ownership` | Transfer/take/drop network ownership of an object |
-| `add_sync_property` | Add a [Sync] replicated property to a script |
-| `add_rpc_method` | Add an RPC method ([Rpc.Broadcast/Host/Owner]) to a script |
-| `create_networked_player` | Generate network-aware player with sync + RPCs |
-| `create_lobby_manager` | Generate lobby create/join/leave management script |
-| `create_network_events` | Generate INetworkListener event handler script |
-
-### Publishing & Build
-| Tool | What It Does |
-|------|-------------|
-| `get_project_config` | Read full .sbproj configuration |
-| `set_project_config` | Update title, description, version, type, metadata |
-| `validate_project` | Check project readiness for publishing |
-| `build_project` | Trigger full project build/recompilation |
-| `get_build_status` | Current build state, errors, warnings, diagnostics |
-| `clean_build` | Clean compiled output and rebuild from scratch |
-| `export_project` | Export project as standalone game |
-| `set_project_thumbnail` | Set project thumbnail image for publishing |
-| `get_package_details` | Fetch package info from asset.party |
-| `prepare_publish` | Comprehensive publish readiness report |
-
-### Diagnostics
-| Tool | What It Does |
-|------|-------------|
-| `get_bridge_status` | Connection health, latency, registered commands |
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SBOX_BRIDGE_HOST` | `127.0.0.1` | Bridge WebSocket host |
-| `SBOX_BRIDGE_PORT` | `29015` | Bridge WebSocket port |
-
-## Testing
-
-See **[TESTING.md](TESTING.md)** for the full test plan covering all 88 tools, integration scenarios, security tests, and performance benchmarks.
-
-## Troubleshooting
-
-**Bridge won't connect** — Is s&box running with the Bridge Addon? Check `get_bridge_status`. Default port is 29015.
-
-**Commands timeout (30s)** — The editor may be frozen (compiling, loading). Try `get_bridge_status` — if latency is -1, restart the MCP server.
-
-**Compile errors after script edit** — Run `get_compile_errors`, fix with `edit_script`, `trigger_hotload`, verify with `get_compile_errors` again.
-
-**Play mode not working** — Check `is_playing` first. Runtime property tools require `start_play` first. `stop_play` discards all runtime changes.
-
-## Roadmap
-
-- **Phase 1** ✅ Foundation — project awareness, scripts, console, scenes (15 tools)
-- **Phase 2** ✅ Scene Building — GameObjects, components, hierarchy, selection (15 tools)
-- **Phase 3** ✅ Assets & Resources — asset browser, materials, models, audio (12 tools)
-- **Phase 4** ✅ Play & Test — play mode, runtime debugging, screenshots, undo/redo (11 tools)
-- **Phase 5** ✅ Game Logic — prefabs, physics, UI system, player/NPC templates (15 tools)
-- **Phase 6** ✅ Multiplayer — networking, lobbies, sync properties, RPCs (10 tools)
-- **Phase 7** ✅ Publishing — build, export, project config, publish preparation (10 tools)
+See [CLAUDE.md](CLAUDE.md) for detailed architecture docs, verified APIs, and lessons learned.
 
 ## License
 

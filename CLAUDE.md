@@ -2,373 +2,262 @@
 
 > Let non-coders build s&box games through conversation with Claude Code.
 
-## Status: Phase 7 Complete — All Phases Done
+## Status: Bridge Working — Handlers Being Refined
 
-**Last updated:** 2026-04-09
-**Current phase:** Phase 7 (Publishing) ✅ — 88 tools implemented
-**All 7 phases complete.** Full feature set: project management, scene building, assets, play mode, game logic, multiplayer, and publishing.
+**Last updated:** 2026-04-10
+**Bridge:** File-based IPC ✅ working on main thread
+**Handlers:** 61 compiled and registered, param names being aligned with MCP server
+**Tested working:** create_gameobject, assign_model, list_scenes, get_project_info, is_playing, list_available_components
 
 ---
 
 ## Architecture
 
 ```
-Claude Code → (stdio) → MCP Server → (WebSocket :29015) → Bridge Addon → s&box Editor
+Claude Code → (stdio) → MCP Server → (file IPC) → Bridge Addon → s&box Editor
+                          Node.js        %TEMP%/sbox-bridge-ipc/     C# in Editor
 ```
+
+**NOT WebSocket.** s&box's sandboxed C# environment does not allow `System.Net` (HttpListener, WebSocket, TcpListener). Communication uses **file-based IPC**:
+
+1. MCP Server writes `req_<id>.json` to the temp directory
+2. Bridge addon polls for request files via `System.Threading.Timer` (50ms)
+3. Requests are queued and processed on the **main editor thread** (required for scene APIs)
+4. Bridge writes `res_<id>.json` back
+5. MCP Server polls for response files
+
+IPC directory: `%TEMP%/sbox-bridge-ipc/` (typically `C:\Users\<user>\AppData\Local\Temp\sbox-bridge-ipc\`)
 
 Two components:
 1. **MCP Server** (`sbox-mcp-server/`) — TypeScript/Node.js, stdio transport, talks to Claude Code
-2. **Bridge Addon** (`sbox-bridge-addon/`) — C#, runs inside s&box editor, executes commands
+2. **Bridge Addon** — C# editor library, lives in the s&box **project's Libraries folder**
 
-The MCP Server translates Claude's tool calls into WebSocket messages. The Bridge Addon receives them inside the running s&box editor and calls the actual engine APIs.
+---
+
+## Critical Lessons Learned
+
+### Addon Location
+- **DO NOT** put addons in the global `sbox/addons/` folder — those are built-in only and won't compile custom code
+- **DO** put addons in the project's `Libraries/` folder (e.g., `bigfoot/Libraries/claudebridge/`)
+- s&box auto-scaffolds `Editor/`, `Code/`, `UnitTests/` with proper `.csproj` files when you create a library through the editor
+
+### Compilation
+- s&box compiles addons silently — if there are errors, **no log output appears** unless you check the full log
+- Check `logs/sbox-dev.log` or the console for `Compile of 'local.X.editor' Failed:` messages
+- The `.csproj` file is required and must reference s&box DLLs with absolute paths
+- s&box generates the `.csproj` automatically when you create a library through the Library Manager
+
+### Main Thread Requirement
+- All scene manipulation APIs (`CreateObject`, `AddComponent`, `Destroy`, etc.) **must run on the main editor thread**
+- `System.Threading.Timer` callbacks run on thread pool threads — NOT safe for scene APIs
+- Solution: Timer reads files from disk (thread-safe), queues them, and a `[EditorEvent.Frame]` handler on a `[Dock]` widget processes them on the main thread
+
+### Class Discovery
+- s&box discovers classes via attributes like `[Menu]`, `[Dock]`, `[EditorEvent.Frame]`
+- Static constructors fire when the type scanner discovers the class
+- `[Event("editor.created")]` fires BEFORE custom addons load — don't rely on it
+- `[Event("editor.loaded")]` does NOT exist
+
+### s&box API Key Differences (vs. what was originally coded)
+- `SceneEditorSession.Active.Scene` — the editor scene (NOT `Game.ActiveScene` which is for play mode)
+- `go.AddComponent<T>()` — add component (NOT `go.Components.Create<T>()`, though ComponentList.Create also exists)
+- `go.GetOrAddComponent<T>()` — get existing or add
+- `go.GetComponent<T>()` — get existing
+- `SceneEditorSession.Active.Selection` — editor selection (NOT `EditorScene.Selection`)
+- `SceneEditorSession.Active.SetPlaying(scene)` / `.StopPlaying()` — play mode
+- `SceneEditorSession.Active.FrameTo(bbox)` — focus camera on object
+- `SceneEditorSession.Active.Save()` — save scene
+- `Game.TypeLibrary.GetType("name")` — find types
+- `Game.TypeLibrary.GetTypes<Component>()` — list all component types
+- `MeshCollider` does NOT exist — use `HullCollider` instead
+- `Rotation.Pitch()`, `.Yaw()`, `.Roll()` are methods, not properties
+
+### API Schema
+- The full s&box type schema can be downloaded as JSON from `sbox.game/api`
+- It contains all types, methods, properties, and fields
+- Use this as the source of truth, NOT reverse engineering from the tools addon
 
 ---
 
 ## Project Structure
 
 ```
-Sbox-Claude/
-├── CLAUDE.md                          ← YOU ARE HERE — project context for Claude
-├── README.md                          ← User-facing docs + setup guide
-├── INSTALL.md                         ← Detailed installation guide
-├── CONTRIBUTING.md                    ← How to add tools, conventions, protocol
-├── TESTING.md                         ← Test plan for all 78 tools (6 phases)
-├── LICENSE                            ← MIT license
-├── install.ps1                        ← Windows installer (auto-detects s&box)
-├── install.sh                         ← Linux/WSL installer
-├── .gitignore
+sbox-claude/
+├── CLAUDE.md                          ← YOU ARE HERE
+├── README.md                          ← User-facing docs
+├── INSTALL.md                         ← Installation guide
+├── LICENSE                            ← MIT
+├── install.ps1 / install.sh           ← Legacy installers (need updating)
 │
 ├── sbox-mcp-server/                   # MCP Server (TypeScript)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── src/
-│   │   ├── index.ts                   # Entry point — registers all tools, starts stdio
+│   │   ├── index.ts                   # Entry point — registers all 88 tools
 │   │   ├── transport/
-│   │   │   └── bridge-client.ts       # WebSocket client → s&box Bridge (:29015)
+│   │   │   └── bridge-client.ts       # File-based IPC client
 │   │   └── tools/
 │   │       ├── project.ts             # get_project_info, list_project_files, read_file, write_file
 │   │       ├── scripts.ts             # create_script, edit_script, delete_script, trigger_hotload
 │   │       ├── console.ts             # get_console_output, get_compile_errors, clear_console
 │   │       ├── scenes.ts              # list_scenes, load_scene, save_scene, create_scene
-│   │       ├── gameobjects.ts         # create/delete/duplicate/rename, set_parent/enabled/transform, hierarchy, selection
-│   │       ├── components.ts          # get_property, get_all_properties, list_available_components, add_component
-│   │       ├── assets.ts              # search_assets, list_asset_library, install_asset, get_asset_info
-│   │       ├── materials.ts           # assign_model, create_material, assign_material, set_material_property
-│   │       ├── audio.ts              # list_sounds, create_sound_event, assign_sound, play_sound_preview
-│   │       ├── playmode.ts           # play mode control, runtime properties, screenshot, undo/redo, set_property
-│   │       ├── prefabs.ts            # create_prefab, instantiate_prefab, list_prefabs, get_prefab_info
-│   │       ├── physics.ts            # add_physics, add_collider, add_joint, raycast
-│   │       ├── ui.ts                 # create_razor_ui, add_screen_panel, add_world_panel
-│   │       ├── templates.ts          # create_player_controller, create_npc_controller, create_game_manager, create_trigger_zone
-│   │       ├── networking.ts         # add_network_helper, configure_network, network_spawn, set_ownership, RPCs, sync, templates
-│   │       ├── publishing.ts        # get/set_project_config, validate, build, export, thumbnail, package details, publish
-│   │       └── status.ts             # get_bridge_status diagnostic tool
-│   └── dist/                          # Compiled JS (gitignored, built with `npm run build`)
+│   │       ├── gameobjects.ts         # CRUD, hierarchy, selection
+│   │       ├── components.ts          # get/set properties, list components, add components
+│   │       ├── assets.ts              # search, list, install, info
+│   │       ├── materials.ts           # assign_model, create_material, assign_material
+│   │       ├── audio.ts               # list_sounds, create_sound_event, assign_sound
+│   │       ├── playmode.ts            # play/stop/pause, runtime properties, screenshot, undo
+│   │       ├── prefabs.ts             # create/instantiate/list/info
+│   │       ├── physics.ts             # add_physics, add_collider, add_joint, raycast
+│   │       ├── ui.ts                  # create_razor_ui, screen/world panels
+│   │       ├── templates.ts           # player/npc/game_manager/trigger templates
+│   │       ├── networking.ts          # network helpers, spawn, sync, RPC, templates
+│   │       ├── publishing.ts          # project config, build, export, publish
+│   │       └── status.ts              # get_bridge_status
+│   └── dist/                          # Compiled JS
 │
-└── sbox-bridge-addon/                 # s&box Bridge Addon (C#)
-    ├── sbox-bridge-addon.sbproj       # s&box project config
-    └── Code/
-        ├── Core/
-        │   ├── BridgeAddon.cs         # Entry point — registers handlers on editor load
-        │   ├── BridgeServer.cs        # WebSocket server, accepts connections, dispatches commands
-        │   ├── ICommandHandler.cs     # Interface: Execute(JsonElement) → Task<object>
-        │   ├── LogCapture.cs          # Hooks Logger.OnMessage → buffers for get_console_output
-        │   └── ComponentHelper.cs     # Serialize/deserialize component property values
-        └── Commands/
-            ├── GetProjectInfoHandler.cs
-            ├── ListProjectFilesHandler.cs
-            ├── ReadFileHandler.cs
-            ├── WriteFileHandler.cs
-            ├── CreateScriptHandler.cs
-            ├── EditScriptHandler.cs
-            ├── DeleteScriptHandler.cs
-            ├── TriggerHotloadHandler.cs
-            ├── GetConsoleOutputHandler.cs
-            ├── GetCompileErrorsHandler.cs
-            ├── ClearConsoleHandler.cs
-            ├── ListScenesHandler.cs
-            ├── LoadSceneHandler.cs
-            ├── SaveSceneHandler.cs
-            ├── CreateSceneHandler.cs
-            ├── CreateGameObjectHandler.cs
-            ├── DeleteGameObjectHandler.cs
-            ├── DuplicateGameObjectHandler.cs
-            ├── RenameGameObjectHandler.cs
-            ├── SetParentHandler.cs
-            ├── SetEnabledHandler.cs
-            ├── SetTransformHandler.cs
-            ├── GetPropertyHandler.cs
-            ├── GetAllPropertiesHandler.cs
-            ├── ListAvailableComponentsHandler.cs
-            ├── AddComponentWithPropertiesHandler.cs
-            ├── GetSceneHierarchyHandler.cs
-            ├── GetSelectedObjectsHandler.cs
-            ├── SelectObjectHandler.cs
-            ├── FocusObjectHandler.cs
-            ├── SearchAssetsHandler.cs
-            ├── ListAssetLibraryHandler.cs
-            ├── InstallAssetHandler.cs
-            ├── GetAssetInfoHandler.cs
-            ├── AssignModelHandler.cs
-            ├── CreateMaterialHandler.cs
-            ├── AssignMaterialHandler.cs
-            ├── SetMaterialPropertyHandler.cs
-            ├── ListSoundsHandler.cs
-            ├── CreateSoundEventHandler.cs
-            ├── AssignSoundHandler.cs
-            ├── PlaySoundPreviewHandler.cs
-            ├── PlayModeHandler.cs
-            ├── SetPropertyHandler.cs
-            ├── RuntimePropertyHandler.cs
-            ├── TakeScreenshotHandler.cs
-            ├── UndoRedoHandler.cs
-            ├── CreatePrefabHandler.cs
-            ├── InstantiatePrefabHandler.cs
-            ├── ListPrefabsHandler.cs
-            ├── GetPrefabInfoHandler.cs
-            ├── AddPhysicsHandler.cs
-            ├── AddColliderHandler.cs
-            ├── AddJointHandler.cs
-            ├── RaycastHandler.cs
-            ├── CreateRazorUIHandler.cs
-            ├── AddScreenPanelHandler.cs
-            ├── AddWorldPanelHandler.cs
-            ├── CreatePlayerControllerHandler.cs
-            ├── CreateNpcControllerHandler.cs
-            ├── CreateGameManagerHandler.cs
-            ├── CreateTriggerZoneHandler.cs
-            ├── AddNetworkHelperHandler.cs
-            ├── ConfigureNetworkHandler.cs
-            ├── GetNetworkStatusHandler.cs
-            ├── NetworkSpawnHandler.cs
-            ├── SetOwnershipHandler.cs
-            ├── AddSyncPropertyHandler.cs
-            ├── AddRpcMethodHandler.cs
-            ├── CreateNetworkedPlayerHandler.cs
-            ├── CreateLobbyManagerHandler.cs
-            ├── CreateNetworkEventsHandler.cs
-            ├── GetProjectConfigHandler.cs
-            ├── SetProjectConfigHandler.cs
-            ├── ValidateProjectHandler.cs
-            ├── BuildProjectHandler.cs
-            ├── GetBuildStatusHandler.cs
-            ├── CleanBuildHandler.cs
-            ├── ExportProjectHandler.cs
-            ├── SetProjectThumbnailHandler.cs
-            ├── GetPackageDetailsHandler.cs
-            └── PreparePublishHandler.cs
+└── sbox-bridge-addon/                 # Legacy location (DO NOT USE)
+    └── ...                            # Old WebSocket-based addon (non-functional)
+
+# ACTUAL working addon location (per-project):
+<s&box project>/Libraries/claudebridge/
+├── claudebridge.sbproj               # Auto-generated by s&box
+├── Editor/
+│   ├── claudebridge.editor.csproj    # Auto-generated by s&box
+│   └── MyEditorMenu.cs               # ALL bridge code — server + handlers
+├── Code/
+│   └── claudebridge.csproj           # Auto-generated
+└── UnitTests/
+    └── claudebridge.unittest.csproj  # Auto-generated
 ```
 
 ---
 
-## Implemented Tools
+## How to Install (Current Working Method)
 
-### Phase 1 — Foundation (15 tools) ✅
+### Prerequisites
+- s&box installed via Steam
+- Node.js 18+ installed
+- Claude Code installed
 
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `get_project_info` | `tools/project.ts` | `GetProjectInfoHandler.cs` | Returns project path, name, type, deps |
-| `list_project_files` | `tools/project.ts` | `ListProjectFilesHandler.cs` | Browse file tree, filter by dir/extension |
-| `read_file` | `tools/project.ts` | `ReadFileHandler.cs` | Read any project file contents |
-| `write_file` | `tools/project.ts` | `WriteFileHandler.cs` | Create/overwrite files, auto-mkdir |
-| `create_script` | `tools/scripts.ts` | `CreateScriptHandler.cs` | Generate C# component with boilerplate or raw |
-| `edit_script` | `tools/scripts.ts` | `EditScriptHandler.cs` | Find/replace, insert, append, delete lines |
-| `delete_script` | `tools/scripts.ts` | `DeleteScriptHandler.cs` | Remove script files |
-| `trigger_hotload` | `tools/scripts.ts` | `TriggerHotloadHandler.cs` | Force recompile + hotload |
-| `get_console_output` | `tools/console.ts` | `GetConsoleOutputHandler.cs` | Read buffered log entries by severity |
-| `get_compile_errors` | `tools/console.ts` | `GetCompileErrorsHandler.cs` | Get diagnostics with file/line/column |
-| `clear_console` | `tools/console.ts` | `ClearConsoleHandler.cs` | Clear log buffer |
-| `list_scenes` | `tools/scenes.ts` | `ListScenesHandler.cs` | Find all .scene files in project |
-| `load_scene` | `tools/scenes.ts` | `LoadSceneHandler.cs` | Open scene in editor |
-| `save_scene` | `tools/scenes.ts` | `SaveSceneHandler.cs` | Save current scene |
-| `create_scene` | `tools/scenes.ts` | `CreateSceneHandler.cs` | New scene with optional defaults |
+### Step 1: Create the Library in s&box
+1. Open s&box with your project
+2. Go to Library Manager
+3. Create a new library called "claudebridge"
+4. s&box will scaffold the folder structure
 
-### Phase 2 — Scene Building (15 tools) ✅
+### Step 2: Copy the Bridge Code
+Copy `MyEditorMenu.cs` into the `Editor/` folder of the library.
 
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `create_gameobject` | `tools/gameobjects.ts` | `CreateGameObjectHandler.cs` | Create object with name, position, rotation, scale, parent |
-| `delete_gameobject` | `tools/gameobjects.ts` | `DeleteGameObjectHandler.cs` | Remove object by GUID |
-| `duplicate_gameobject` | `tools/gameobjects.ts` | `DuplicateGameObjectHandler.cs` | Clone with all components, optional offset |
-| `rename_gameobject` | `tools/gameobjects.ts` | `RenameGameObjectHandler.cs` | Change display name |
-| `set_parent` | `tools/gameobjects.ts` | `SetParentHandler.cs` | Reparent object (or move to root) |
-| `set_enabled` | `tools/gameobjects.ts` | `SetEnabledHandler.cs` | Enable/disable object |
-| `set_transform` | `tools/gameobjects.ts` | `SetTransformHandler.cs` | Set position/rotation/scale (world or local) |
-| `get_property` | `tools/components.ts` | `GetPropertyHandler.cs` | Read single component property value |
-| `get_all_properties` | `tools/components.ts` | `GetAllPropertiesHandler.cs` | Dump all properties as JSON |
-| `list_available_components` | `tools/components.ts` | `ListAvailableComponentsHandler.cs` | Browse all component types (built-in + custom) |
-| `add_component_with_properties` | `tools/components.ts` | `AddComponentWithPropertiesHandler.cs` | Add component + set properties in one call |
-| `get_scene_hierarchy` | `tools/gameobjects.ts` | `GetSceneHierarchyHandler.cs` | Full scene tree with GUIDs, components, positions |
-| `get_selected_objects` | `tools/gameobjects.ts` | `GetSelectedObjectsHandler.cs` | What the user has selected in editor |
-| `select_object` | `tools/gameobjects.ts` | `SelectObjectHandler.cs` | Programmatically select an object |
-| `focus_object` | `tools/gameobjects.ts` | `FocusObjectHandler.cs` | Move editor camera to look at object |
+### Step 3: Build the MCP Server
+```bash
+cd sbox-mcp-server
+npm install
+npm run build
+```
 
-### Phase 3 — Assets & Resources (12 tools) ✅
+### Step 4: Register with Claude Code
+```bash
+claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+```
 
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `search_assets` | `tools/assets.ts` | `SearchAssetsHandler.cs` | Search project assets by name/type |
-| `list_asset_library` | `tools/assets.ts` | `ListAssetLibraryHandler.cs` | Browse community asset packages |
-| `install_asset` | `tools/assets.ts` | `InstallAssetHandler.cs` | Add community package to project |
-| `get_asset_info` | `tools/assets.ts` | `GetAssetInfoHandler.cs` | Detailed asset metadata |
-| `assign_model` | `tools/materials.ts` | `AssignModelHandler.cs` | Set model on ModelRenderer (auto-creates) |
-| `create_material` | `tools/materials.ts` | `CreateMaterialHandler.cs` | New .vmat with shader + properties |
-| `assign_material` | `tools/materials.ts` | `AssignMaterialHandler.cs` | Apply material to renderer slot |
-| `set_material_property` | `tools/materials.ts` | `SetMaterialPropertyHandler.cs` | Change color, roughness, texture, etc. |
-| `list_sounds` | `tools/audio.ts` | `ListSoundsHandler.cs` | Find sound assets in project |
-| `create_sound_event` | `tools/audio.ts` | `CreateSoundEventHandler.cs` | New .sound with volume, pitch, falloff |
-| `assign_sound` | `tools/audio.ts` | `AssignSoundHandler.cs` | Attach sound to SoundPointComponent |
-| `play_sound_preview` | `tools/audio.ts` | `PlaySoundPreviewHandler.cs` | Preview sound in editor |
-
-### Phase 4 — Play & Test (11 tools) ✅
-
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `start_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Enter play mode |
-| `stop_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Exit play mode |
-| `pause_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Pause running game |
-| `resume_play` | `tools/playmode.ts` | `PlayModeHandler.cs` | Resume paused game |
-| `is_playing` | `tools/playmode.ts` | `PlayModeHandler.cs` | Check state: playing/paused/stopped |
-| `set_property` | `tools/playmode.ts` | `SetPropertyHandler.cs` | Write a component property (editor mode) |
-| `get_runtime_property` | `tools/playmode.ts` | `RuntimePropertyHandler.cs` | Read property during play mode |
-| `set_runtime_property` | `tools/playmode.ts` | `RuntimePropertyHandler.cs` | Write property during play mode |
-| `take_screenshot` | `tools/playmode.ts` | `TakeScreenshotHandler.cs` | Capture viewport as PNG |
-| `undo` | `tools/playmode.ts` | `UndoRedoHandler.cs` | Undo last editor action |
-| `redo` | `tools/playmode.ts` | `UndoRedoHandler.cs` | Redo last undone action |
-
-### Phase 5 — Game Logic (15 tools) ✅
-
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `create_prefab` | `tools/prefabs.ts` | `CreatePrefabHandler.cs` | Save GameObject as reusable .prefab |
-| `instantiate_prefab` | `tools/prefabs.ts` | `InstantiatePrefabHandler.cs` | Spawn prefab instance into scene |
-| `list_prefabs` | `tools/prefabs.ts` | `ListPrefabsHandler.cs` | List all .prefab files in project |
-| `get_prefab_info` | `tools/prefabs.ts` | `GetPrefabInfoHandler.cs` | Read prefab metadata and contents |
-| `add_physics` | `tools/physics.ts` | `AddPhysicsHandler.cs` | Add Rigidbody + collider to object |
-| `add_collider` | `tools/physics.ts` | `AddColliderHandler.cs` | Add specific collider type |
-| `add_joint` | `tools/physics.ts` | `AddJointHandler.cs` | Add physics constraint between objects |
-| `raycast` | `tools/physics.ts` | `RaycastHandler.cs` | Perform physics raycast, return hits |
-| `create_razor_ui` | `tools/ui.ts` | `CreateRazorUIHandler.cs` | Create .razor + .scss UI component |
-| `add_screen_panel` | `tools/ui.ts` | `AddScreenPanelHandler.cs` | Create ScreenPanel for HUD overlay |
-| `add_world_panel` | `tools/ui.ts` | `AddWorldPanelHandler.cs` | Create WorldPanel for in-world 3D UI |
-| `create_player_controller` | `tools/templates.ts` | `CreatePlayerControllerHandler.cs` | Generate FPS/TPS player controller |
-| `create_npc_controller` | `tools/templates.ts` | `CreateNpcControllerHandler.cs` | Generate NPC with NavMesh AI |
-| `create_game_manager` | `tools/templates.ts` | `CreateGameManagerHandler.cs` | Generate game manager with state/score |
-| `create_trigger_zone` | `tools/templates.ts` | `CreateTriggerZoneHandler.cs` | Generate trigger zone with callbacks |
-
-### Phase 6 — Multiplayer (10 tools) ✅
-
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `add_network_helper` | `tools/networking.ts` | `AddNetworkHelperHandler.cs` | Add NetworkHelper for lobby/spawning |
-| `configure_network` | `tools/networking.ts` | `ConfigureNetworkHandler.cs` | Set max players, lobby name, prefab |
-| `get_network_status` | `tools/networking.ts` | `GetNetworkStatusHandler.cs` | Connection state, players, lobby info |
-| `network_spawn` | `tools/networking.ts` | `NetworkSpawnHandler.cs` | Network-enable a GameObject |
-| `set_ownership` | `tools/networking.ts` | `SetOwnershipHandler.cs` | Transfer/take/drop network ownership |
-| `add_sync_property` | `tools/networking.ts` | `AddSyncPropertyHandler.cs` | Add [Sync] property to script |
-| `add_rpc_method` | `tools/networking.ts` | `AddRpcMethodHandler.cs` | Add RPC method to script |
-| `create_networked_player` | `tools/networking.ts` | `CreateNetworkedPlayerHandler.cs` | Generate networked player controller |
-| `create_lobby_manager` | `tools/networking.ts` | `CreateLobbyManagerHandler.cs` | Generate lobby management script |
-| `create_network_events` | `tools/networking.ts` | `CreateNetworkEventsHandler.cs` | Generate INetworkListener events script |
-
-### Phase 7 — Publishing (10 tools) ✅
-
-| Tool | MCP File | Bridge Handler | What It Does |
-|------|----------|----------------|-------------|
-| `get_project_config` | `tools/publishing.ts` | `GetProjectConfigHandler.cs` | Read full .sbproj configuration |
-| `set_project_config` | `tools/publishing.ts` | `SetProjectConfigHandler.cs` | Update title, description, version, type, metadata |
-| `validate_project` | `tools/publishing.ts` | `ValidateProjectHandler.cs` | Check project readiness for publishing |
-| `build_project` | `tools/publishing.ts` | `BuildProjectHandler.cs` | Trigger full project build/recompilation |
-| `get_build_status` | `tools/publishing.ts` | `GetBuildStatusHandler.cs` | Build state, errors, warnings, diagnostics |
-| `clean_build` | `tools/publishing.ts` | `CleanBuildHandler.cs` | Clean compiled output and rebuild |
-| `export_project` | `tools/publishing.ts` | `ExportProjectHandler.cs` | Export project as standalone game |
-| `set_project_thumbnail` | `tools/publishing.ts` | `SetProjectThumbnailHandler.cs` | Set project thumbnail for publishing |
-| `get_package_details` | `tools/publishing.ts` | `GetPackageDetailsHandler.cs` | Fetch package info from asset.party |
-| `prepare_publish` | `tools/publishing.ts` | `PreparePublishHandler.cs` | Comprehensive publish readiness report |
+### Step 5: Restart s&box
+- Open the "Claude Bridge" dock from View menu
+- Check status: Editor → Claude Bridge → Status
 
 ---
 
-## How to Add a New Tool
+## Verified s&box APIs (from schema + testing)
 
-Every tool requires exactly two files:
-
-### 1. Bridge Handler (C#) — `sbox-bridge-addon/Code/Commands/YourHandler.cs`
-
+### Scene Access
 ```csharp
-using System.Text.Json;
-using System.Threading.Tasks;
-using Sandbox;
-
-namespace SboxBridge;
-
-public class YourHandler : ICommandHandler
-{
-    public Task<object> Execute( JsonElement parameters )
-    {
-        // Read params: parameters.GetProperty("name").GetString()
-        // Call s&box APIs
-        // Return anonymous object (gets serialized to JSON)
-        return Task.FromResult<object>( new { result = "ok" } );
-    }
-}
+var scene = SceneEditorSession.Active?.Scene;  // Editor scene
+var scene = Game.ActiveScene;                   // Play mode scene
 ```
 
-### 2. MCP Tool (TypeScript) — add to existing file or create `sbox-mcp-server/src/tools/your-domain.ts`
-
-```typescript
-server.tool(
-  "your_tool_name",
-  "Description of what this tool does",
-  {
-    param1: z.string().describe("What this param is"),
-  },
-  async (params) => {
-    const res = await bridge.send("your_tool_name", params);
-    if (!res.success) {
-      return { content: [{ type: "text", text: `Error: ${res.error}` }] };
-    }
-    return { content: [{ type: "text", text: JSON.stringify(res.data, null, 2) }] };
-  }
-);
-```
-
-### 3. Register it in `BridgeAddon.cs`
-
+### GameObject
 ```csharp
-BridgeServer.RegisterHandler( "your_tool_name", new YourHandler() );
+var go = scene.CreateObject(true);
+go.Name = "My Object";
+go.WorldPosition = new Vector3(x, y, z);
+go.WorldRotation = Rotation.From(pitch, yaw, roll);
+go.WorldScale = new Vector3(sx, sy, sz);
+go.SetParent(parent, keepWorldPosition: true);
+go.Enabled = false;
+go.Destroy();
+var clone = go.Clone();
+scene.Directory.FindByGuid(guid);
+scene.Directory.FindByName("name");
 ```
 
-### 4. If new tool file, register in `index.ts`
+### Components
+```csharp
+go.AddComponent<ModelRenderer>();
+go.GetComponent<ModelRenderer>();
+go.GetOrAddComponent<ModelRenderer>();
+go.Components.GetAll();
+go.Components.Create(typeDescription);  // Dynamic type
+```
 
-```typescript
-import { registerYourTools } from "./tools/your-domain.js";
-registerYourTools(server, bridge);
+### Models & Materials
+```csharp
+var renderer = go.GetOrAddComponent<ModelRenderer>();
+renderer.Model = Model.Load("models/dev/box.vmdl");
+renderer.MaterialOverride = Material.Load("path.vmat");
+renderer.Tint = Color.Red;
+```
+
+### Physics
+```csharp
+go.AddComponent<Rigidbody>();       // Has: Gravity, MassOverride, LinearDamping, etc.
+go.AddComponent<BoxCollider>();      // Has: Scale, Center, IsTrigger
+go.AddComponent<SphereCollider>();   // Has: Radius, Center, IsTrigger
+go.AddComponent<CapsuleCollider>(); // Has: Radius, Start, End, IsTrigger
+go.AddComponent<HullCollider>();     // (NOT MeshCollider — doesn't exist)
+```
+
+### Play Mode
+```csharp
+Game.IsPlaying   // bool
+Game.IsPaused    // bool
+SceneEditorSession.Active.SetPlaying(scene);
+SceneEditorSession.Active.StopPlaying();
+```
+
+### Editor Selection
+```csharp
+SceneEditorSession.Active.Selection.Set(go);
+SceneEditorSession.Active.Selection.Add(go);
+SceneEditorSession.Active.Selection.Clear();
+SceneEditorSession.Active.FrameTo(go.GetBounds());  // Focus camera
+```
+
+### TypeLibrary
+```csharp
+Game.TypeLibrary.GetType("ModelRenderer");          // TypeDescription
+Game.TypeLibrary.GetTypes<Component>();              // All component types
+// TypeDescription: .Name, .Title, .Description, .Properties, .IsAbstract, .FullName
+```
+
+### Project
+```csharp
+Project.Current.GetRootPath();
+Project.Current.GetAssetsPath();
+Project.Current.Config.Title / .Org / .Ident / .Type
 ```
 
 ---
 
-## Coding Conventions
+## Known Issues / TODO
 
-### Bridge Addon (C#)
-- One handler class per command in `Code/Commands/`
-- Class name = `{CommandPascalCase}Handler` (e.g. `GetProjectInfoHandler`)
-- All file paths are **relative to s&box project root**
-- Always validate paths stay within project dir: normalize `projectRoot` with trailing separator, then `fullPath.StartsWith(projectRoot)`
-- Use s&box's `Log.Info()` / `Log.Warning()` for debug output
-- Tab indentation, Allman-ish braces with s&box spacing style
-
-### MCP Server (TypeScript)
-- Tools grouped by domain in `src/tools/` (project, scripts, console, scenes)
-- Use Zod schemas for parameter validation
-- Every tool returns `{ content: [{ type: "text", text: ... }] }`
-- Error responses: `Error: ${res.error}` format
-- Bridge command name = MCP tool name (1:1 mapping)
-
-### Protocol
-- WebSocket default port: **29015** (configurable via `SBOX_BRIDGE_PORT`)
-- Request format: `{ id: string, command: string, params: object }`
-- Response format: `{ id: string, success: boolean, data?: any, error?: string }`
-- Timeout: 30 seconds per request
+- [ ] Parameter name alignment between MCP server tools and C# handlers (in progress)
+- [ ] `get_scene_hierarchy` returns empty hierarchy array despite objects existing
+- [ ] Several handlers skipped due to uncertain APIs (see comments in MyEditorMenu.cs)
+- [ ] Need to verify all 61 handlers work end-to-end
+- [ ] Install process needs to be simplified (copy one file vs. current multi-step)
+- [ ] Bridge addon code is in a project-specific location — needs to be packaged for distribution
+- [ ] `ws` npm dependency is no longer needed (file IPC replaced WebSocket)
+- [ ] Old `sbox-bridge-addon/` folder in repo is outdated (WebSocket-based, wrong structure)
 
 ---
 
@@ -378,58 +267,11 @@ registerYourTools(server, bridge);
 # Build MCP Server
 cd sbox-mcp-server && npm install && npm run build
 
-# Watch mode (auto-rebuild on change)
-cd sbox-mcp-server && npm run dev
+# The Bridge Addon is compiled automatically by s&box
+# Just edit MyEditorMenu.cs and restart s&box
 
-# Connect to Claude Code
-claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+# Test IPC manually:
+echo '{"id":"test","command":"get_project_info","params":{}}' > %TEMP%/sbox-bridge-ipc/req_test.json
+# Check response:
+cat %TEMP%/sbox-bridge-ipc/res_test.json
 ```
-
-The Bridge Addon is compiled automatically by s&box when placed in the addons directory.
-
----
-
-## Troubleshooting
-
-### Bridge won't connect
-- Is s&box running? The editor must be open with the Bridge Addon installed
-- Check port: default is 29015, configurable via `SBOX_BRIDGE_PORT`
-- Run `get_bridge_status` to see connection state and latency
-- Firewall: ensure localhost:29015 isn't blocked
-
-### Commands timeout (30s)
-- The s&box editor may be frozen (compiling, loading assets)
-- Try `get_bridge_status` — if latency is -1, the connection is dead
-- Restart the MCP server and reconnect
-
-### Compile errors after script edit
-1. Run `get_compile_errors` to see what's broken (file, line, message)
-2. Fix with `edit_script` (find/replace the broken code)
-3. Run `trigger_hotload` to recompile
-4. Run `get_compile_errors` again to verify clean
-
-### Scene hierarchy is empty
-- No scene loaded — use `list_scenes` then `load_scene`
-- Scene exists but has no objects — use `create_gameobject` to add some
-
-### Play mode failures
-- `is_playing` returns current state — check before calling pause/resume
-- Runtime property tools throw if not in play mode — call `start_play` first
-- `stop_play` discards all runtime changes — save the scene first if needed
-
-### Screenshot returns placeholder
-- The screenshot API (`Camera.RenderToTexture()`) needs real s&box SDK wiring
-- See `TakeScreenshotHandler.cs` for 3 candidate APIs to try
-
----
-
-## Known Limitations / TODO
-
-- [ ] Several s&box APIs need verification against real SDK (see API-NOTE comments in handlers)
-- [ ] LogCapture has 3 candidate hook APIs — compile against SDK and uncomment the right one
-- [ ] `TakeScreenshotHandler` uses placeholder until camera render API is wired
-- [ ] `UndoRedoHandler` uses `Undo.PerformUndo()` — may need different API path
-- [ ] `EditorScene.IsPaused` in `IsPlayingHandler` — may not exist, fallback to playing/stopped only
-- [ ] No authentication on WebSocket — fine for localhost, would need auth for remote
-- [ ] `create_scene` generates JSON manually — should use s&box scene serialization if available
-- [ ] Batch commands run sequentially — could parallelize independent handlers

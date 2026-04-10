@@ -1,17 +1,17 @@
-import WebSocket from "ws";
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 /**
- * WebSocket transport layer for communicating with the s&box Bridge Addon.
+ * File-based IPC transport for communicating with the s&box Bridge Addon.
  *
- * This module provides the sole communication channel between the MCP server
- * and the s&box editor. All tool calls flow through {@link BridgeClient.send}
- * as JSON messages over a WebSocket connection to localhost:29015 (configurable).
- *
- * Protocol: Each request gets a unique ID. The Bridge responds with the same ID,
- * allowing multiple in-flight requests. See {@link BridgeRequest} and {@link BridgeResponse}.
+ * Instead of WebSocket, this uses a shared temp directory where:
+ * - MCP server writes request files (req_*.json)
+ * - s&box addon polls for them, processes, and writes response files (res_*.json)
+ * - MCP server polls for response files
  */
 
-/** A single command request sent to the s&box Bridge over WebSocket. */
+/** A single command request sent to the s&box Bridge. */
 export interface BridgeRequest {
   id: string;
   command: string;
@@ -27,125 +27,63 @@ export interface BridgeResponse {
 }
 
 /**
- * WebSocket client that connects to the s&box Bridge Addon running inside the editor.
- *
- * Handles the full connection lifecycle: initial connect, auto-reconnect on
- * disconnect (3s delay), ping/pong keepalive (15s interval, disconnects after
- * 3 missed pings), per-request timeouts (default 30s), and graceful rejection
- * of all in-flight requests when the connection drops.
- *
- * Usage: Instantiate once, call {@link connect}, then use {@link send} for each tool call.
- * The client auto-reconnects on failure, so callers rarely need to call connect() directly.
+ * File-based IPC client that communicates with the s&box Bridge Addon.
  */
 export class BridgeClient {
-  private ws: WebSocket | null = null;
-  private pendingRequests = new Map<
-    string,
-    {
-      resolve: (value: BridgeResponse) => void;
-      reject: (reason: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
-    }
-  >();
   private requestCounter = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private pingTimer: ReturnType<typeof setTimeout> | null = null;
-  private missedPings = 0;
-  private url: string;
-  private host: string;
-  private port: number;
+  private ipcDir: string;
   private connected = false;
   private lastPongTime = 0;
+  private host: string;
+  private port: number;
 
-  static readonly PING_INTERVAL_MS = 15000;
-  static readonly MAX_MISSED_PINGS = 3;
-  static readonly RECONNECT_DELAY_MS = 3000;
+  static readonly POLL_INTERVAL_MS = 50; // 50ms polling for responses
+  static readonly STATUS_CHECK_INTERVAL_MS = 5000;
 
-  /**
-   * @param host - WebSocket host, defaults to 127.0.0.1
-   * @param port - WebSocket port, defaults to 29015 (configurable via SBOX_BRIDGE_PORT)
-   */
   constructor(host = "127.0.0.1", port = 29015) {
     this.host = host;
     this.port = port;
-    this.url = `ws://${host}:${port}`;
+    this.ipcDir = path.join(os.tmpdir(), "sbox-bridge-ipc");
   }
 
   /**
-   * Establish the WebSocket connection to the s&box Bridge.
-   * Sets up message, pong, close, and error handlers, and starts the ping keepalive loop.
-   * Rejects if the initial connection fails (e.g., s&box is not running).
+   * Check if the s&box Bridge is running by looking for the status file.
    */
   async connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    // Ensure IPC directory exists
+    if (!fs.existsSync(this.ipcDir)) {
+      fs.mkdirSync(this.ipcDir, { recursive: true });
+    }
+
+    const statusPath = path.join(this.ipcDir, "status.json");
+    if (fs.existsSync(statusPath)) {
       try {
-        this.ws = new WebSocket(this.url);
-
-        this.ws.on("open", () => {
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        if (status.running) {
           this.connected = true;
-          this.missedPings = 0;
           this.lastPongTime = Date.now();
-          this.startPingLoop();
-          resolve();
-        });
-
-        this.ws.on("pong", () => {
-          this.missedPings = 0;
-          this.lastPongTime = Date.now();
-        });
-
-        this.ws.on("message", (data: WebSocket.RawData) => {
-          try {
-            const response = JSON.parse(data.toString()) as BridgeResponse;
-            const pending = this.pendingRequests.get(response.id);
-            if (pending) {
-              clearTimeout(pending.timer);
-              this.pendingRequests.delete(response.id);
-              pending.resolve(response);
-            }
-          } catch {
-            // Ignore malformed messages
-          }
-        });
-
-        this.ws.on("close", () => {
-          this.connected = false;
-          this.stopPingLoop();
-          this.rejectAllPending("Connection closed");
-          this.scheduleReconnect();
-        });
-
-        this.ws.on("error", (err: Error) => {
-          if (!this.connected) {
-            reject(
-              new Error(
-                `Cannot connect to s&box Bridge at ${this.url}. Is s&box running with the Bridge Addon? (${err.message})`
-              )
-            );
-          } else {
-            console.error(`[sbox-mcp] WebSocket error: ${err.message}`);
-          }
-        });
-      } catch (err) {
-        reject(err);
+          return;
+        }
+      } catch {
+        // Status file exists but is malformed
       }
-    });
+    }
+
+    throw new Error(
+      `Cannot connect to s&box Bridge. No status file found at ${statusPath}. Is s&box running with the Bridge Addon?`
+    );
   }
 
   /**
    * Send a command to the s&box Bridge and wait for its response.
-   * Auto-reconnects if the WebSocket is not currently connected.
-   * @param command - Bridge command name (matches the MCP tool name 1:1)
-   * @param params - Command parameters, forwarded as JSON to the Bridge handler
-   * @param timeoutMs - Per-request timeout in ms (default 30s)
-   * @returns The Bridge response; check `success` before reading `data`
    */
   async send(
     command: string,
     params: Record<string, unknown> = {},
     timeoutMs = 30000
   ): Promise<BridgeResponse> {
-    if (!this.ws || !this.connected) {
+    // Try to connect if not connected
+    if (!this.connected) {
       try {
         await this.connect();
       } catch {
@@ -158,45 +96,77 @@ export class BridgeClient {
       }
     }
 
-    // Guard: ensure ws is valid after reconnect
-    if (!this.ws) {
-      return { id: "", success: false, error: "Connection failed" };
+    const id = `${++this.requestCounter}_${Date.now()}`;
+    const request: BridgeRequest = { id, command, params };
+
+    // Ensure IPC directory exists
+    if (!fs.existsSync(this.ipcDir)) {
+      fs.mkdirSync(this.ipcDir, { recursive: true });
     }
 
-    const id = `req_${++this.requestCounter}_${Date.now()}`;
-    const request: BridgeRequest = { id, command, params };
-    const ws = this.ws;
+    // Write request file
+    const reqPath = path.join(this.ipcDir, `req_${id}.json`);
+    try {
+      fs.writeFileSync(reqPath, JSON.stringify(request), "utf8");
+    } catch (err) {
+      return {
+        id,
+        success: false,
+        error: `Failed to write request file: ${err}`,
+      };
+    }
+
+    // Poll for response file
+    const resPath = path.join(this.ipcDir, `res_${id}.json`);
+    const startTime = Date.now();
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        resolve({
-          id,
-          success: false,
-          error: `Request timed out after ${timeoutMs}ms`,
-        });
-      }, timeoutMs);
+      const poll = setInterval(() => {
+        // Check timeout
+        if (Date.now() - startTime > timeoutMs) {
+          clearInterval(poll);
+          // Clean up request file if still there
+          try {
+            if (fs.existsSync(reqPath)) fs.unlinkSync(reqPath);
+          } catch {}
+          resolve({
+            id,
+            success: false,
+            error: `Request timed out after ${timeoutMs}ms`,
+          });
+          return;
+        }
 
-      this.pendingRequests.set(id, {
-        resolve,
-        reject: () => {},
-        timer,
-      });
-      ws.send(JSON.stringify(request));
+        // Check for response file
+        if (fs.existsSync(resPath)) {
+          try {
+            const responseJson = fs.readFileSync(resPath, "utf8");
+            const response = JSON.parse(responseJson) as BridgeResponse;
+
+            // Clean up response file
+            try {
+              fs.unlinkSync(resPath);
+            } catch {}
+
+            clearInterval(poll);
+            this.lastPongTime = Date.now();
+            resolve(response);
+          } catch {
+            // Response file might be partially written, try again next poll
+          }
+        }
+      }, BridgeClient.POLL_INTERVAL_MS);
     });
   }
 
   /**
-   * Send multiple commands in a single WebSocket message for efficiency.
-   * The Bridge processes them sequentially and returns all results at once.
-   * @param commands - Array of command/params pairs to execute as a batch
-   * @param timeoutMs - Timeout for the entire batch (default 30s)
+   * Send multiple commands as a batch.
    */
   async sendBatch(
     commands: Array<{ command: string; params?: Record<string, unknown> }>,
     timeoutMs = 30000
   ): Promise<BridgeResponse> {
-    if (!this.ws || !this.connected) {
+    if (!this.connected) {
       try {
         await this.connect();
       } catch {
@@ -208,142 +178,105 @@ export class BridgeClient {
       }
     }
 
-    if (!this.ws) {
-      return { id: "", success: false, error: "Connection failed" };
-    }
-
     const id = `batch_${++this.requestCounter}_${Date.now()}`;
     const request = { id, commands };
-    const ws = this.ws;
+
+    if (!fs.existsSync(this.ipcDir)) {
+      fs.mkdirSync(this.ipcDir, { recursive: true });
+    }
+
+    const reqPath = path.join(this.ipcDir, `req_${id}.json`);
+    try {
+      fs.writeFileSync(reqPath, JSON.stringify(request), "utf8");
+    } catch (err) {
+      return {
+        id,
+        success: false,
+        error: `Failed to write request file: ${err}`,
+      };
+    }
+
+    const resPath = path.join(this.ipcDir, `res_${id}.json`);
+    const startTime = Date.now();
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        resolve({
-          id,
-          success: false,
-          error: `Batch request timed out after ${timeoutMs}ms`,
-        });
-      }, timeoutMs);
+      const poll = setInterval(() => {
+        if (Date.now() - startTime > timeoutMs) {
+          clearInterval(poll);
+          try {
+            if (fs.existsSync(reqPath)) fs.unlinkSync(reqPath);
+          } catch {}
+          resolve({
+            id,
+            success: false,
+            error: `Batch request timed out after ${timeoutMs}ms`,
+          });
+          return;
+        }
 
-      this.pendingRequests.set(id, {
-        resolve,
-        reject: () => {},
-        timer,
-      });
-      ws.send(JSON.stringify(request));
+        if (fs.existsSync(resPath)) {
+          try {
+            const responseJson = fs.readFileSync(resPath, "utf8");
+            const response = JSON.parse(responseJson) as BridgeResponse;
+            try {
+              fs.unlinkSync(resPath);
+            } catch {}
+            clearInterval(poll);
+            this.lastPongTime = Date.now();
+            resolve(response);
+          } catch {}
+        }
+      }, BridgeClient.POLL_INTERVAL_MS);
     });
   }
 
   /**
-   * Send a WebSocket ping and measure round-trip latency.
-   * @returns Latency in milliseconds, or -1 if not connected or ping times out (5s)
+   * Check if bridge is alive by looking for status file.
    */
   async ping(): Promise<number> {
-    if (!this.ws || !this.connected) return -1;
-
-    const ws = this.ws;
+    const statusPath = path.join(this.ipcDir, "status.json");
     const start = Date.now();
-    return new Promise((resolve) => {
-      const onPong = () => {
-        clearTimeout(timeout);
-        resolve(Date.now() - start);
-      };
-      const timeout = setTimeout(() => {
-        ws.removeListener("pong", onPong);
-        resolve(-1);
-      }, 5000);
-      ws.once("pong", onPong);
-      ws.ping();
-    });
+    try {
+      if (fs.existsSync(statusPath)) {
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        if (status.running) {
+          this.lastPongTime = Date.now();
+          return Date.now() - start;
+        }
+      }
+    } catch {}
+    return -1;
   }
 
-  /** Whether the WebSocket is currently open and connected. */
   isConnected(): boolean {
+    // Re-check status file
+    const statusPath = path.join(this.ipcDir, "status.json");
+    try {
+      if (fs.existsSync(statusPath)) {
+        const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+        this.connected = !!status.running;
+      } else {
+        this.connected = false;
+      }
+    } catch {
+      this.connected = false;
+    }
     return this.connected;
   }
 
-  /** The configured Bridge host address. */
   getHost(): string {
     return this.host;
   }
 
-  /** The configured Bridge port number. */
   getPort(): number {
     return this.port;
   }
 
-  /** Timestamp (ms since epoch) of the last pong received, or 0 if never connected. */
   getLastPongTime(): number {
     return this.lastPongTime;
   }
 
-  /**
-   * Cleanly shut down the connection: cancel any pending reconnect,
-   * stop the ping loop, reject all in-flight requests, and close the socket.
-   */
   disconnect(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.stopPingLoop();
-    this.rejectAllPending("Client disconnecting");
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
     this.connected = false;
-  }
-
-  /** Start the periodic ping keepalive. Terminates the socket after MAX_MISSED_PINGS unanswered pings. */
-  private startPingLoop(): void {
-    this.stopPingLoop();
-    this.pingTimer = setInterval(() => {
-      if (!this.ws || !this.connected) {
-        this.stopPingLoop();
-        return;
-      }
-
-      this.missedPings++;
-      if (this.missedPings >= BridgeClient.MAX_MISSED_PINGS) {
-        console.error(
-          `[sbox-mcp] ${BridgeClient.MAX_MISSED_PINGS} pings unanswered — closing connection`
-        );
-        this.stopPingLoop();
-        this.ws.terminate();
-        return;
-      }
-
-      this.ws.ping();
-    }, BridgeClient.PING_INTERVAL_MS);
-  }
-
-  /** Stop the ping interval timer. */
-  private stopPingLoop(): void {
-    if (this.pingTimer) {
-      clearInterval(this.pingTimer);
-      this.pingTimer = null;
-    }
-  }
-
-  /** Schedule a reconnection attempt after RECONNECT_DELAY_MS. No-op if already scheduled. */
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect().catch(() => {
-        // Will retry on next send()
-      });
-    }, BridgeClient.RECONNECT_DELAY_MS);
-  }
-
-  /** Resolve all pending requests with a failure response and clear the map. */
-  private rejectAllPending(reason: string): void {
-    for (const [id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timer);
-      pending.resolve({ id, success: false, error: reason });
-    }
-    this.pendingRequests.clear();
   }
 }
