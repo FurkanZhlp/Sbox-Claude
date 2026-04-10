@@ -73,10 +73,27 @@ Two components:
 - `MeshCollider` does NOT exist — use `HullCollider` instead
 - `Rotation.Pitch()`, `.Yaw()`, `.Roll()` are methods, not properties
 
+### Math & Events (learned during Sasquatched development)
+- `MathX.Clamp(value, min, max)` — NOT `System.Math` or `MathF` (neither exists in s&box sandbox)
+- `System.MathF` does NOT exist in s&box's C# sandbox
+- `IGameEvent` / `GameObject.Dispatch()` / `Scene.Dispatch()` are from `facepunch.libevents` package, NOT base s&box
+- If not using libevents, use a static `GameEventBus` pattern with `Action<T>` delegates
+- `Networking.MaxPlayers` is **read-only** — set via lobby config, not direct assignment
+- `Networking.IsHost` may throw if networking is not active — guard with try/catch or check `Networking.IsActive` first
+- Components that reference `Networking.*` in `OnUpdate` can crash the bridge if networking isn't initialized
+
+### Bridge Behavior Notes
+- Bridge processes **one request per editor frame** — sending many requests rapidly causes some to be consumed without response
+- If game code fails to compile, the editor code (bridge) also fails (`Broken Reference: package.local.X`)
+- Bridge Status menu item always works even when frame processing is broken (it's a sync call)
+- The `[Dock]` widget must be **visible** for `[EditorEvent.Frame]` to fire — if closed, no requests process
+- `Org` in `.sbproj` must be `"local"` for local development — only set to your org name when publishing
+
 ### API Schema
 - The full s&box type schema can be downloaded as JSON from `sbox.game/api`
 - It contains all types, methods, properties, and fields
 - Use this as the source of truth, NOT reverse engineering from the tools addon
+- Key types verified from schema: `MathX.Clamp`, `SceneEditorSession`, `NetworkHelper`, `Package.FetchAsync`, `AssetSystem.InstallAsync`, `UndoSystem.Undo/Redo`
 
 ---
 
