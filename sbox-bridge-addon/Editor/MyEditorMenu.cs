@@ -3266,6 +3266,8 @@ public class BuildTerrainMeshHandler : IBridgeHandler
 		go.WorldPosition = Vector3.Zero;
 
 		var mesh = go.AddComponent<MeshComponent>();
+		// MeshComponent.Mesh is null on a freshly-added component — must assign a fresh PolygonMesh
+		if ( mesh.Mesh == null ) mesh.Mesh = new PolygonMesh();
 		var polyMesh = mesh.Mesh;
 
 		var halfSize = size * 0.5f;
@@ -3431,8 +3433,8 @@ internal static class WorldGenHelpers
 				if ( !attr.GetType().Name.Contains( "Button" ) ) continue;
 				if ( AttributeStringMatches( attr, buttonLabel ) )
 				{
-					try { method.Invoke( comp, null ); return true; }
-					catch ( Exception ex ) { Log.Warning( $"[InvokeButton] {ex.Message}" ); return false; }
+					InvokeUnwrap( method, comp );
+					return true;
 				}
 			}
 		}
@@ -3441,7 +3443,11 @@ internal static class WorldGenHelpers
 		foreach ( var method in methods )
 		{
 			if ( method.GetParameters().Length > 0 ) continue;
-			if ( method.Name == buttonLabel ) { method.Invoke( comp, null ); return true; }
+			if ( method.Name == buttonLabel )
+			{
+				InvokeUnwrap( method, comp );
+				return true;
+			}
 		}
 
 		// Strategy 3: case-insensitive, ignore spaces
@@ -3451,12 +3457,24 @@ internal static class WorldGenHelpers
 			if ( method.GetParameters().Length > 0 ) continue;
 			if ( string.Equals( method.Name, normalized, StringComparison.OrdinalIgnoreCase ) )
 			{
-				method.Invoke( comp, null );
+				InvokeUnwrap( method, comp );
 				return true;
 			}
 		}
 
 		return false;
+	}
+
+	// Invoke a method and re-throw the inner exception (not the TargetInvocationException wrapper)
+	// so callers see the real error message instead of "Exception has been thrown by the target of an invocation."
+	private static void InvokeUnwrap( MethodInfo method, object target )
+	{
+		try { method.Invoke( target, null ); }
+		catch ( TargetInvocationException tie )
+		{
+			var inner = tie.InnerException ?? tie;
+			throw new Exception( $"{inner.GetType().Name}: {inner.Message}\n{inner.StackTrace}" );
+		}
 	}
 
 	private static bool AttributeStringMatches( object attr, string target )
