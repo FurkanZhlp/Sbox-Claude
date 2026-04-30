@@ -42,11 +42,17 @@ public static class ClaudeBridge
 	[EditorEvent.Frame]
 	public static void EnsureInitialized()
 	{
-		if ( _initialized ) return;
-		_initialized = true;
-		Log.Info( "[SboxBridge] Initializing..." );
-		RegisterHandlers();
-		StartBridge();
+		if ( !_initialized )
+		{
+			_initialized = true;
+			Log.Info( "[SboxBridge] Initializing..." );
+			RegisterHandlers();
+			StartBridge();
+		}
+
+		// Process queued requests every editor frame so the bridge works
+		// even when the BridgePoller dock widget isn't open.
+		ProcessPendingOnMainThread();
 	}
 
 	[Menu( "Editor", "Claude Bridge/Status", "smart_toy" )]
