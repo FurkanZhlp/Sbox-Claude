@@ -11,6 +11,8 @@
        sbox MCP server with: Claude Code, OpenAI Codex CLI, Cursor,
        Continue.dev, Claude Desktop.
 
+    Compatible with Windows PowerShell 5.1 and PowerShell 7+.
+
 .PARAMETER SboxPath
     Path to your s&box install. Auto-detected if omitted.
 
@@ -53,6 +55,27 @@ Write-Host ""
 Write-Host "=== s&box Claude Bridge Installer ===" -ForegroundColor Cyan
 Write-Host ""
 
+# ── Helpers ──────────────────────────────────────────────────────
+
+function Write-Utf8NoBom([string]$path, [string]$content) {
+    # PS 5.1's Set-Content -Encoding utf8 writes a BOM that breaks several JSON
+    # and TOML parsers. Use the .NET API with an explicit no-BOM encoding.
+    [System.IO.File]::WriteAllText( $path, $content, (New-Object System.Text.UTF8Encoding $false) )
+}
+
+function Append-Utf8NoBom([string]$path, [string]$content) {
+    if (Test-Path $path) {
+        $existing = [System.IO.File]::ReadAllText( $path, (New-Object System.Text.UTF8Encoding $false) )
+        Write-Utf8NoBom $path ($existing + $content)
+    } else {
+        Write-Utf8NoBom $path $content
+    }
+}
+
+function Ensure-Dir([string]$dir) {
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+}
+
 # ── Locate s&box installation ──────────────────────────────────────
 
 function Find-SboxPath {
@@ -69,9 +92,9 @@ function Find-SboxPath {
     $steamConfig = "${env:ProgramFiles(x86)}\Steam\steamapps\libraryfolders.vdf"
     if (Test-Path $steamConfig) {
         $content = Get-Content $steamConfig -Raw
-        $matches = [regex]::Matches($content, '"path"\s+"([^"]+)"')
-        foreach ($match in $matches) {
-            $libPath = $match.Groups[1].Value -replace '\\\\', '\'
+        $vdfMatches = [regex]::Matches($content, '"path"\s+"([^"]+)"')
+        foreach ($m in $vdfMatches) {
+            $libPath = $m.Groups[1].Value -replace '\\\\', '\'
             $candidate = Join-Path $libPath "steamapps\common\sbox"
             if (Test-Path $candidate) { return $candidate }
         }
@@ -113,7 +136,7 @@ if ($null -eq $srcSbproj) {
 # ── Copy to global addons ─────────────────────────────────────────
 
 $addonsDir = Join-Path $SboxPath "addons"
-if (-not (Test-Path $addonsDir)) { New-Item -ItemType Directory -Path $addonsDir -Force | Out-Null }
+Ensure-Dir $addonsDir
 $destination = Join-Path $addonsDir $addonName
 
 if (Test-Path $destination) {
@@ -137,7 +160,7 @@ if ($ProjectPath -ne "") {
         exit 1
     }
     $libDir = Join-Path $ProjectPath "Libraries"
-    if (-not (Test-Path $libDir)) { New-Item -ItemType Directory -Path $libDir -Force | Out-Null }
+    Ensure-Dir $libDir
     $libDest = Join-Path $libDir $packageIdent
     if (Test-Path $libDest) { Remove-Item -Recurse -Force $libDest }
     Copy-Item -Recurse -Force $addonSource $libDest
@@ -148,8 +171,9 @@ if ($ProjectPath -ne "") {
 
 $validClients = @( "claude", "codex", "cursor", "continue", "desktop" )
 
-function Parse-Client-Choice([string]$raw) {
-    $raw = ($raw ?? "").ToLower().Trim()
+function Parse-ClientChoice([string]$raw) {
+    if ($null -eq $raw) { $raw = "" }
+    $raw = $raw.ToLower().Trim()
     if ($raw -eq "" -or $raw -eq "none") { return @() }
     if ($raw -eq "all") { return $validClients }
     $parts = $raw -split '[,\s]+' | Where-Object { $_ -ne "" }
@@ -162,11 +186,11 @@ function Parse-Client-Choice([string]$raw) {
 }
 
 if ($Client -ne "") {
-    $clientsToConfigure = Parse-Client-Choice $Client
+    $clientsToConfigure = Parse-ClientChoice $Client
 } else {
     Write-Host ""
     Write-Host "Which AI client(s) do you want to register the sbox MCP server with?" -ForegroundColor Cyan
-    Write-Host "  1) Claude Code         (~/.claude.json — uses 'claude mcp add')"
+    Write-Host "  1) Claude Code         (~/.claude.json - uses 'claude mcp add')"
     Write-Host "  2) OpenAI Codex CLI    (~/.codex/config.toml)"
     Write-Host "  3) Cursor              (~/.cursor/mcp.json)"
     Write-Host "  4) Continue.dev        (~/.continue/config.json)"
@@ -174,68 +198,80 @@ if ($Client -ne "") {
     Write-Host ""
     Write-Host "  Comma-separated names (claude,codex,...) or 'all' / 'none' [none]: " -ForegroundColor White -NoNewline
     $reply = Read-Host
-    $clientsToConfigure = Parse-Client-Choice $reply
+    $clientsToConfigure = Parse-ClientChoice $reply
 }
 
-# ── Helpers for client configuration ──────────────────────────────
+# ── JSON helpers (PS 5.1 + PS 7 compatible) ───────────────────────
+
+function ConvertFrom-JsonSafe([string]$path) {
+    if (-not (Test-Path $path)) { return $null }
+    $raw = [System.IO.File]::ReadAllText( $path )
+    if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+    try { return $raw | ConvertFrom-Json }
+    catch {
+        Write-Host "  WARN: $path is not valid JSON - skipping." -ForegroundColor Yellow
+        return "INVALID"
+    }
+}
+
+function Add-OrSet-Property($obj, [string]$name, $value) {
+    # Works on PSCustomObject (the type ConvertFrom-Json produces in PS 5.1).
+    if ($null -eq $obj) { return }
+    if ($obj.PSObject.Properties[$name]) {
+        $obj.$name = $value
+    } else {
+        $obj | Add-Member -NotePropertyName $name -NotePropertyValue $value -Force
+    }
+}
 
 function Set-McpJson([string]$path, [string]$serverName, [string]$command, [string[]]$serverArgs) {
-    $dir = Split-Path -Parent $path
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Ensure-Dir (Split-Path -Parent $path)
 
-    if (Test-Path $path) {
-        $raw = Get-Content $path -Raw
-        if ([string]::IsNullOrWhiteSpace($raw)) { $config = [ordered]@{} }
-        else {
-            try { $config = $raw | ConvertFrom-Json -AsHashtable }
-            catch { Write-Host "  WARN: $path is not valid JSON — leaving alone." -ForegroundColor Yellow; return $false }
-        }
-    } else {
-        $config = [ordered]@{}
+    $config = ConvertFrom-JsonSafe $path
+    if ($config -eq "INVALID") { return $false }
+    if ($null -eq $config) { $config = New-Object PSObject }
+
+    # mcpServers
+    if ($null -eq $config.mcpServers) {
+        Add-OrSet-Property $config "mcpServers" (New-Object PSObject)
     }
 
-    if (-not $config.ContainsKey("mcpServers")) { $config["mcpServers"] = [ordered]@{} }
-    $config["mcpServers"][$serverName] = [ordered]@{
-        command = $command
-        args    = $serverArgs
-    }
+    # mcpServers.<serverName>
+    $entry = New-Object PSObject
+    Add-OrSet-Property $entry "command" $command
+    Add-OrSet-Property $entry "args" $serverArgs
+    Add-OrSet-Property $config.mcpServers $serverName $entry
 
-    ($config | ConvertTo-Json -Depth 10) | Set-Content -Path $path -Encoding utf8
+    Write-Utf8NoBom $path ($config | ConvertTo-Json -Depth 10)
     return $true
 }
 
 function Configure-Claude {
     if (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
-        Write-Host "  claude CLI not found in PATH — install Claude Code first, then run:" -ForegroundColor Yellow
+        Write-Host "  claude CLI not found in PATH - install Claude Code first, then run:" -ForegroundColor Yellow
         Write-Host "    claude mcp add sbox -- npx sbox-mcp-server" -ForegroundColor Gray
         return
     }
     Write-Host "  Running: claude mcp add sbox -- npx sbox-mcp-server"
     & claude mcp add sbox -- npx sbox-mcp-server | Out-Null
     if ($LASTEXITCODE -eq 0) { Write-Host "  OK" -ForegroundColor Green }
-    else { Write-Host "  claude mcp add returned exit $LASTEXITCODE" -ForegroundColor Yellow }
+    else { Write-Host "  claude mcp add returned exit $LASTEXITCODE (already present?)" -ForegroundColor Yellow }
 }
 
 function Configure-Codex {
     $path = Join-Path $env:USERPROFILE ".codex\config.toml"
-    $dir  = Split-Path -Parent $path
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Ensure-Dir (Split-Path -Parent $path)
 
     if (Test-Path $path) {
-        $existing = Get-Content $path -Raw
+        $existing = [System.IO.File]::ReadAllText( $path )
         if ($existing -match "(?ms)^\s*\[mcp_servers\.sbox\]") {
             Write-Host "  Already present in $path (skipping)" -ForegroundColor Gray
             return
         }
     }
 
-    $block = @"
-
-[mcp_servers.sbox]
-command = "npx"
-args = ["sbox-mcp-server"]
-"@
-    Add-Content -Path $path -Value $block -Encoding utf8
+    $block = "`n[mcp_servers.sbox]`ncommand = `"npx`"`nargs = [`"sbox-mcp-server`"]`n"
+    Append-Utf8NoBom $path $block
     Write-Host "  Appended [mcp_servers.sbox] to $path" -ForegroundColor Green
 }
 
@@ -248,38 +284,39 @@ function Configure-Cursor {
 
 function Configure-Continue {
     $path = Join-Path $env:USERPROFILE ".continue\config.json"
-    $dir  = Split-Path -Parent $path
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    Ensure-Dir (Split-Path -Parent $path)
 
-    if (Test-Path $path) {
-        try { $config = Get-Content $path -Raw | ConvertFrom-Json -AsHashtable }
-        catch { Write-Host "  WARN: $path is not valid JSON — skipping." -ForegroundColor Yellow; return }
-    } else { $config = [ordered]@{} }
+    $config = ConvertFrom-JsonSafe $path
+    if ($config -eq "INVALID") { return }
+    if ($null -eq $config) { $config = New-Object PSObject }
 
-    if (-not $config.ContainsKey("experimental")) { $config["experimental"] = [ordered]@{} }
-    if (-not $config["experimental"].ContainsKey("modelContextProtocolServers")) {
-        $config["experimental"]["modelContextProtocolServers"] = @()
+    if ($null -eq $config.experimental) {
+        Add-OrSet-Property $config "experimental" (New-Object PSObject)
+    }
+    if ($null -eq $config.experimental.modelContextProtocolServers) {
+        Add-OrSet-Property $config.experimental "modelContextProtocolServers" @()
     }
 
-    $servers = @($config["experimental"]["modelContextProtocolServers"])
-    $alreadyHasSbox = $servers | Where-Object {
-        $_.transport -and $_.transport.args -and ($_.transport.args -contains "sbox-mcp-server")
-    }
-    if ($alreadyHasSbox) {
-        Write-Host "  Already present in $path (skipping)" -ForegroundColor Gray
-        return
-    }
-
-    $servers += [ordered]@{
-        transport = [ordered]@{
-            type    = "stdio"
-            command = $mcpCommand
-            args    = $mcpArgs
+    $existingServers = @($config.experimental.modelContextProtocolServers)
+    foreach ($srv in $existingServers) {
+        if ($srv.transport -and $srv.transport.args -and ($srv.transport.args -contains "sbox-mcp-server")) {
+            Write-Host "  Already present in $path (skipping)" -ForegroundColor Gray
+            return
         }
     }
-    $config["experimental"]["modelContextProtocolServers"] = $servers
 
-    ($config | ConvertTo-Json -Depth 10) | Set-Content -Path $path -Encoding utf8
+    $transport = New-Object PSObject
+    Add-OrSet-Property $transport "type"    "stdio"
+    Add-OrSet-Property $transport "command" $mcpCommand
+    Add-OrSet-Property $transport "args"    $mcpArgs
+
+    $serverEntry = New-Object PSObject
+    Add-OrSet-Property $serverEntry "transport" $transport
+
+    $newServers = $existingServers + $serverEntry
+    Add-OrSet-Property $config.experimental "modelContextProtocolServers" $newServers
+
+    Write-Utf8NoBom $path ($config | ConvertTo-Json -Depth 10)
     Write-Host "  Wrote $path" -ForegroundColor Green
 }
 
