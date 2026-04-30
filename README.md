@@ -1,10 +1,12 @@
-# s&box Claude Bridge
+# s&box AI Bridge
 
-> Let non-coders build s&box games through conversation with Claude Code.
+> Build s&box games through conversation with Claude Code, OpenAI Codex, Cursor, or any MCP-compatible AI client.
 
 ## What This Does
 
-Claude Code connects to the s&box editor in real-time. You describe what you want — Claude writes the C# scripts, builds the scenes, and iterates until it works.
+An MCP (Model Context Protocol) server connects your AI client to the s&box editor in real-time. You describe what you want — the AI writes the C# scripts, builds the scenes, and iterates until it works.
+
+The bridge is **client-agnostic**: the same `sbox-mcp-server` works for any MCP-compatible client. Pick yours below.
 
 ```
 You: "Make me a horror game where I explore an abandoned hospital with a flashlight"
@@ -47,17 +49,24 @@ npm install
 npm run build
 ```
 
-### 3. Connect Claude Code
+### 3. Connect Your AI Client
 
+Pick one — see [INSTALL.md](INSTALL.md) for full details and other clients (Cursor, Continue, Cline, Claude Desktop).
+
+#### Claude Code
 ```bash
-claude mcp add sbox -- node /path/to/sbox-mcp-server/dist/index.js
+claude mcp add sbox -- npx sbox-mcp-server
 ```
 
-### 4. Open the Bridge Dock
+#### OpenAI Codex CLI
+Edit `~/.codex/config.toml`:
+```toml
+[mcp_servers.sbox]
+command = "npx"
+args = ["sbox-mcp-server"]
+```
 
-In s&box, go to **View → Claude Bridge** to open the dock panel. This is required for scene-modifying operations to work (they must run on the main editor thread).
-
-### 5. Start Building
+### 4. Start Building
 
 ```
 "Create a first-person player controller with WASD movement and mouse look"
@@ -115,10 +124,10 @@ The `Discovery` tools surface `Game.TypeLibrary` reflection so Claude can look u
 ## Technical Notes
 
 - **No WebSocket**: s&box's sandboxed C# doesn't allow `System.Net`. We use file-based IPC instead.
-- **Main thread required**: Scene APIs must run on the editor's main thread. A `[Dock]` widget with `[EditorEvent.Frame]` processes queued requests.
+- **Main thread required**: Scene APIs must run on the editor's main thread. A static `[EditorEvent.Frame]` callback processes queued requests every frame.
 - **Addon location**: Must be in the project's `Libraries/` folder, NOT the global `addons/` folder.
 - **UTF-8 BOM**: C#'s `Encoding.UTF8` writes a BOM prefix (`EF BB BF`) that breaks Node.js `JSON.parse`. The bridge writes with `new UTF8Encoding(false)` to avoid this, and the MCP server strips any BOM as a safety net.
-- **Dock must be visible**: The `[EditorEvent.Frame]` handler only fires when the Claude Bridge dock widget is open in the editor. If it's closed, no requests will be processed.
+- **Dock is optional**: The Claude Bridge dock widget shows status but is no longer required for processing — the static frame callback handles requests whether the dock is open or not.
 - **API reference**: Download the full type schema from `sbox.game/api` for the definitive API.
 
 ## Development

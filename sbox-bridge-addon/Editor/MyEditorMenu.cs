@@ -30,11 +30,135 @@ public static class ClaudeBridge
 	// UTF-8 without BOM — Node.js JSON.parse rejects the BOM prefix
 	private static readonly Encoding _utf8NoBom = new UTF8Encoding( false );
 
+	private static bool _initialized;
+
+	// Ring buffer for console / compile diagnostics
+	private const int LogBufferMax = 500;
+	private static readonly Queue<CapturedLog> _logBuffer = new();
+	private static readonly object _logLock = new();
+
+	private struct CapturedLog
+	{
+		public string Timestamp;
+		public string Severity;
+		public string Message;
+		public string Source;
+	}
+
 	static ClaudeBridge()
 	{
-		Log.Info( "[SboxBridge] Initializing..." );
-		RegisterHandlers();
-		StartBridge();
+		// Static ctor must stay light — TypeLibrary is disabled during boot's
+		// static constructors, and any Log call here can trigger the menu addon's
+		// ConsoleOverlay which crashes when TypeLibrary is inaccessible.
+	}
+
+	private static bool _logCaptureHooked;
+	static void EnsureLogCapture()
+	{
+		if ( _logCaptureHooked ) return;
+		try
+		{
+			MenuUtility.AddLogger( OnLogEvent );
+			_logCaptureHooked = true;
+		}
+		catch ( Exception ex )
+		{
+			Log.Warning( $"[SboxBridge] Failed to hook log capture: {ex.Message}" );
+		}
+	}
+
+	static void OnLogEvent( LogEvent e )
+	{
+		var entry = new CapturedLog
+		{
+			Timestamp = e.Time.ToString( "HH:mm:ss.fff" ),
+			Severity  = e.Level.ToString(),
+			Message   = e.Message ?? "",
+			Source    = e.Logger?.Name ?? ""
+		};
+
+		lock ( _logLock )
+		{
+			_logBuffer.Enqueue( entry );
+			while ( _logBuffer.Count > LogBufferMax ) _logBuffer.Dequeue();
+		}
+	}
+
+	internal static object[] SnapshotLogs( int count, string severityFilter )
+	{
+		lock ( _logLock )
+		{
+			IEnumerable<CapturedLog> q = _logBuffer;
+			if ( !string.IsNullOrEmpty( severityFilter ) && severityFilter != "all" )
+				q = q.Where( e => e.Severity.Equals( severityFilter, StringComparison.OrdinalIgnoreCase ) );
+
+			return q.Reverse().Take( count ).Reverse()
+				.Select( e => (object) new { timestamp = e.Timestamp, severity = e.Severity, message = e.Message, source = e.Source } )
+				.ToArray();
+		}
+	}
+
+	internal static (object[] errors, object[] warnings) SnapshotCompileDiagnostics()
+	{
+		var errors = new List<object>();
+		var warnings = new List<object>();
+
+		lock ( _logLock )
+		{
+			foreach ( var e in _logBuffer )
+			{
+				var diag = TryParseCompilerDiagnostic( e );
+				if ( diag is null ) continue;
+
+				var sev = (string) diag.GetType().GetProperty( "severity" ).GetValue( diag );
+				if ( sev == "Error" ) errors.Add( diag );
+				else if ( sev == "Warning" ) warnings.Add( diag );
+			}
+		}
+		return (errors.ToArray(), warnings.ToArray());
+	}
+
+	// Parses messages like:  Path\File.cs(42,17): error CS0103: The name 'X' does not exist...
+	private static readonly System.Text.RegularExpressions.Regex _diagRegex =
+		new( @"^(?<file>[^()]+)\((?<line>\d+),(?<col>\d+)\):\s*(?<sev>error|warning)\s*(?<code>CS\d+):\s*(?<msg>.*)$",
+			System.Text.RegularExpressions.RegexOptions.IgnoreCase );
+
+	static object TryParseCompilerDiagnostic( CapturedLog e )
+	{
+		var match = _diagRegex.Match( e.Message );
+		if ( !match.Success ) return null;
+		return new
+		{
+			file = match.Groups["file"].Value.Trim(),
+			line = int.Parse( match.Groups["line"].Value ),
+			column = int.Parse( match.Groups["col"].Value ),
+			code = match.Groups["code"].Value,
+			message = match.Groups["msg"].Value.Trim(),
+			severity = char.ToUpper( match.Groups["sev"].Value[0] ) + match.Groups["sev"].Value.Substring( 1 ).ToLower()
+		};
+	}
+
+	internal static void ClearLogs()
+	{
+		lock ( _logLock ) _logBuffer.Clear();
+	}
+
+	[EditorEvent.Frame]
+	public static void EnsureInitialized()
+	{
+		if ( !_initialized )
+		{
+			_initialized = true;
+			Log.Info( "[SboxBridge] Initializing..." );
+			RegisterHandlers();
+			StartBridge();
+		}
+
+		EnsureLogCapture();
+
+		// Process queued requests every editor frame so the bridge works
+		// even when the BridgePoller dock widget isn't open.
+		ProcessPendingOnMainThread();
 	}
 
 	[Menu( "Editor", "Claude Bridge/Status", "smart_toy" )]
@@ -191,7 +315,10 @@ public static class ClaudeBridge
 		Register( "list_asset_library",  new ListAssetLibraryHandler() );
 
 		// ── Batch 14: Console / diagnostics ─────────────────────────────
-		// get_console_output / get_compile_errors / clear_console — LogCapture not available, omitted
+		Register( "get_console_output",  new GetConsoleOutputHandler() );
+		Register( "get_compile_errors",  new GetCompileErrorsHandler() );
+		Register( "get_build_status",    new GetBuildStatusHandler() );
+		Register( "clear_console",       new ClearConsoleHandler() );
 		Register( "take_screenshot",     new TakeScreenshotHandler() );
 		Register( "trigger_hotload",     new TriggerHotloadHandler() );
 
@@ -4214,5 +4341,85 @@ public class FindInProjectHandler : IBridgeHandler
 		}
 
 		return Task.FromResult<object>( new { symbol, count = hits.Count, results = hits } );
+	}
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Console / diagnostics — backed by ClaudeBridge log ring buffer
+// ═══════════════════════════════════════════════════════════════════
+
+public class GetConsoleOutputHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var count = p.TryGetProperty( "count", out var c ) ? c.GetInt32() : 50;
+		var severity = p.TryGetProperty( "severity", out var s ) ? s.GetString() : "all";
+
+		var entries = ClaudeBridge.SnapshotLogs( count, severity );
+		return Task.FromResult<object>( new { entries, total = entries.Length } );
+	}
+}
+
+public class GetCompileErrorsHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var (errors, warnings) = ClaudeBridge.SnapshotCompileDiagnostics();
+		return Task.FromResult<object>( new
+		{
+			errors,
+			warnings,
+			errorCount = errors.Length,
+			warningCount = warnings.Length
+		} );
+	}
+}
+
+public class GetBuildStatusHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		var (errors, warnings) = ClaudeBridge.SnapshotCompileDiagnostics();
+		var hasErrors = errors.Length > 0;
+
+		// Heuristic: scan recent log lines for compile activity markers
+		var recent = ClaudeBridge.SnapshotLogs( 30, "all" );
+		bool isCompiling = false;
+		string lastCompileMessage = null;
+		foreach ( var entryObj in recent )
+		{
+			var msgProp = entryObj.GetType().GetProperty( "message" );
+			if ( msgProp is null ) continue;
+			var msg = (string) msgProp.GetValue( entryObj ) ?? "";
+			if ( msg.Contains( "Compiling", StringComparison.OrdinalIgnoreCase ) ||
+				 msg.Contains( "Building", StringComparison.OrdinalIgnoreCase ) )
+			{
+				isCompiling = true;
+				lastCompileMessage = msg;
+			}
+			else if ( msg.Contains( "Compile", StringComparison.OrdinalIgnoreCase ) ||
+					  msg.Contains( "Build", StringComparison.OrdinalIgnoreCase ) )
+			{
+				lastCompileMessage = msg;
+			}
+		}
+
+		return Task.FromResult<object>( new
+		{
+			isCompiling,
+			hasErrors,
+			errorCount = errors.Length,
+			warningCount = warnings.Length,
+			lastCompileMessage
+		} );
+	}
+}
+
+public class ClearConsoleHandler : IBridgeHandler
+{
+	public Task<object> Execute( JsonElement p )
+	{
+		ClaudeBridge.ClearLogs();
+		return Task.FromResult<object>( new { cleared = true } );
 	}
 }

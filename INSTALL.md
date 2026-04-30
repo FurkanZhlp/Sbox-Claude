@@ -6,7 +6,12 @@ This guide walks you through setting up the s&box Claude Bridge from scratch. To
 
 - **s&box** installed via Steam
 - **Node.js 18+** installed ([download](https://nodejs.org/))
-- **Claude Code** installed ([setup guide](https://docs.anthropic.com/en/docs/claude-code))
+- **An MCP-compatible AI client**, one of:
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+  - [OpenAI Codex CLI](https://github.com/openai/codex)
+  - [Cursor](https://cursor.com)
+  - [Continue.dev](https://continue.dev)
+  - [Claude Desktop](https://claude.ai/download)
 
 ## Install via s&box Asset Library (Easiest)
 
@@ -18,10 +23,7 @@ If the addon has been published to the s&box Asset Library:
 4. Click **Install**
 5. Restart s&box — the Bridge starts automatically on port 29015
 
-Then connect Claude Code:
-```bash
-claude mcp add sbox -- npx sbox-mcp-server
-```
+Then [connect your AI client](#step-2-connect-your-ai-client) (Claude Code, Codex, Cursor, etc.).
 
 > **Note:** The Asset Library version may lag behind the latest GitHub release. For the newest features, use the installer scripts below.
 
@@ -37,8 +39,7 @@ cd sbox-claude
 # 2. Run the installer — auto-detects your s&box install
 .\install.ps1
 
-# 3. Connect Claude Code (one-time)
-claude mcp add sbox -- npx sbox-mcp-server
+# 3. Connect your AI client — see Step 2 below for Claude Code, Codex, Cursor, etc.
 ```
 
 ### Linux / WSL
@@ -51,8 +52,7 @@ cd sbox-claude
 # 2. Run the installer
 ./install.sh
 
-# 3. Connect Claude Code (one-time)
-claude mcp add sbox -- npx sbox-mcp-server
+# 3. Connect your AI client — see Step 2 below
 ```
 
 ### If auto-detect fails
@@ -93,29 +93,97 @@ sbox/
       Assets/
 ```
 
-### Step 2: Connect Claude Code
+### Step 2: Connect Your AI Client
 
-Run this once in your terminal:
+The MCP server is client-agnostic — the same binary works with any MCP-compatible client. Pick yours below.
+
+#### Claude Code
 
 ```bash
 claude mcp add sbox -- npx sbox-mcp-server
 ```
 
-This registers the MCP server with Claude Code. It will auto-start whenever you open a Claude Code session.
+#### OpenAI Codex CLI
+
+Edit `~/.codex/config.toml` (create it if missing):
+
+```toml
+[mcp_servers.sbox]
+command = "npx"
+args = ["sbox-mcp-server"]
+```
+
+#### Cursor
+
+Edit `~/.cursor/mcp.json` (or **Settings → MCP** in the Cursor UI):
+
+```json
+{
+  "mcpServers": {
+    "sbox": {
+      "command": "npx",
+      "args": ["sbox-mcp-server"]
+    }
+  }
+}
+```
+
+#### Continue.dev
+
+Edit `~/.continue/config.json`:
+
+```json
+{
+  "experimental": {
+    "modelContextProtocolServers": [
+      {
+        "transport": {
+          "type": "stdio",
+          "command": "npx",
+          "args": ["sbox-mcp-server"]
+        }
+      }
+    ]
+  }
+}
+```
+
+#### Claude Desktop
+
+Edit `claude_desktop_config.json` (Settings → Developer → Edit Config):
+
+```json
+{
+  "mcpServers": {
+    "sbox": {
+      "command": "npx",
+      "args": ["sbox-mcp-server"]
+    }
+  }
+}
+```
+
+#### Other Clients
+
+Any MCP-compatible client can connect — the command is `npx sbox-mcp-server` (stdio transport). Check your client's docs for the exact config syntax.
 
 ## Verify It's Working
 
-1. **Start s&box** — open the editor with any project
-2. **Open Claude Code** — start a new session
+1. **Start s&box** — open the editor with any project. Watch the console for:
+   ```
+   [SboxBridge] Initializing...
+   [SboxBridge] Bridge started — N handlers, IPC at <temp>/sbox-bridge-ipc
+   ```
+2. **Open your AI client** — start a new session.
 3. **Test the connection:**
    ```
-   You: "Check if the bridge is connected"
-   Claude: *calls get_bridge_status* → shows connected, latency, etc.
+   You: "Check if the s&box bridge is connected"
+   AI:  *calls get_bridge_status* → shows connected, handler count, etc.
    ```
-4. **Try a command:**
+4. **Try a real command:**
    ```
    You: "What project is open in s&box?"
-   Claude: *calls get_project_info* → shows project name, path, etc.
+   AI:  *calls get_project_info* → shows project name, path, etc.
    ```
 
 ## Configuration
@@ -129,16 +197,19 @@ This registers the MCP server with Claude Code. It will auto-start whenever you 
 
 ### Custom Port
 
-If port 29015 is in use, change it on both sides:
+If you ever switch to a network transport, set the port on both sides. With the default file-based IPC, this isn't needed.
 
-**MCP Server side:**
+**Claude Code:**
 ```bash
 claude mcp add sbox --env SBOX_BRIDGE_PORT=29016 -- npx sbox-mcp-server
 ```
 
-**Bridge Addon side:** Edit `BridgeAddon.cs` line in `OnEditorLoaded()`:
-```csharp
-_ = BridgeServer.Start(29016);
+**Codex / Cursor / others:** add an `env` block in your client's MCP config:
+```toml
+[mcp_servers.sbox]
+command = "npx"
+args = ["sbox-mcp-server"]
+env = { SBOX_BRIDGE_PORT = "29016" }
 ```
 
 ## Updating
@@ -168,11 +239,15 @@ Run the installer again — it detects the existing install and replaces it:
 
 ## Uninstall
 
-### Remove MCP Server from Claude Code
+### Remove MCP Server from Your Client
 
-```bash
-claude mcp remove sbox
-```
+| Client | Command / action |
+|--------|------------------|
+| Claude Code | `claude mcp remove sbox` |
+| Codex CLI | Delete the `[mcp_servers.sbox]` block from `~/.codex/config.toml` |
+| Cursor | Remove from `~/.cursor/mcp.json` (or Settings → MCP) |
+| Continue.dev | Remove from `~/.continue/config.json` |
+| Claude Desktop | Remove from `claude_desktop_config.json` |
 
 ### Remove Bridge Addon from s&box
 
@@ -192,6 +267,12 @@ Delete the `sbox-bridge-addon/` folder from your s&box addons directory.
 
 ### "claude: command not found"
 - Install Claude Code: see [setup guide](https://docs.anthropic.com/en/docs/claude-code)
+- Or use a different MCP client (Codex, Cursor, Continue) — see Step 2 above
+
+### Codex doesn't see the `sbox` server
+- Make sure `~/.codex/config.toml` has the `[mcp_servers.sbox]` block (TOML, not JSON)
+- Restart your Codex session after editing the config
+- Verify with `codex mcp list` (or whatever the current Codex CLI uses to enumerate servers)
 
 ### Installer can't find s&box
 - Pass the path manually (see "If auto-detect fails" above)
