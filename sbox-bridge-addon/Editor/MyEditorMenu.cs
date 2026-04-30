@@ -58,11 +58,37 @@ public static class ClaudeBridge
 		if ( _logCaptureHooked ) return;
 		try
 		{
-			MenuUtility.AddLogger( OnLogEvent );
+			// MenuUtility is declared in s&box's compiled assemblies but not necessarily
+			// referenced by our addon's csproj — find it via reflection.
+			var menuUtility =
+				Type.GetType( "Sandbox.MenuUtility, Sandbox.System" ) ??
+				AppDomain.CurrentDomain.GetAssemblies()
+					.Select( a => a.GetType( "Sandbox.MenuUtility" ) )
+					.FirstOrDefault( t => t != null );
+
+			if ( menuUtility is null )
+			{
+				_logCaptureHooked = true;
+				Log.Warning( "[SboxBridge] MenuUtility not found — console tools will return empty buffer" );
+				return;
+			}
+
+			var addLogger = menuUtility.GetMethod( "AddLogger", BindingFlags.Public | BindingFlags.Static );
+			if ( addLogger is null )
+			{
+				_logCaptureHooked = true;
+				Log.Warning( "[SboxBridge] MenuUtility.AddLogger not found" );
+				return;
+			}
+
+			var paramType = addLogger.GetParameters()[0].ParameterType;
+			var callback = Delegate.CreateDelegate( paramType, typeof( ClaudeBridge ).GetMethod( nameof( OnLogEvent ), BindingFlags.NonPublic | BindingFlags.Static ) );
+			addLogger.Invoke( null, new object[] { callback } );
 			_logCaptureHooked = true;
 		}
 		catch ( Exception ex )
 		{
+			_logCaptureHooked = true;
 			Log.Warning( $"[SboxBridge] Failed to hook log capture: {ex.Message}" );
 		}
 	}
@@ -74,7 +100,7 @@ public static class ClaudeBridge
 			Timestamp = e.Time.ToString( "HH:mm:ss.fff" ),
 			Severity  = e.Level.ToString(),
 			Message   = e.Message ?? "",
-			Source    = e.Logger?.Name ?? ""
+			Source    = e.Logger ?? ""
 		};
 
 		lock ( _logLock )
