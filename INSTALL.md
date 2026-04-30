@@ -29,31 +29,49 @@ Then [connect your AI client](#step-2-connect-your-ai-client) (Claude Code, Code
 
 ## Quick Install (From Source)
 
+The installer:
+
+1. Finds your s&box install
+2. Copies the Bridge addon into `<sbox>/addons`
+3. Optionally mounts it into a project's `Libraries/` so it loads with no `.sbproj` edit
+4. Asks which AI client(s) you want to register the MCP server with — Claude Code, Codex CLI, Cursor, Continue.dev, Claude Desktop — and writes the config for each
+
 ### Windows (PowerShell)
 
 ```powershell
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/lousputthole/sbox-claude.git
 cd sbox-claude
 
-# 2. Run the installer — auto-detects your s&box install
+# 2. Run the installer (interactive — prompts for AI clients)
 .\install.ps1
 
-# 3. Connect your AI client — see Step 2 below for Claude Code, Codex, Cursor, etc.
+# Or fully non-interactive: mount into a project AND register clients in one go
+.\install.ps1 -ProjectPath "C:\path\to\my-game" -Client claude,codex
 ```
 
-### Linux / WSL
+### Linux / WSL / macOS
 
 ```bash
-# 1. Clone the repo
+# 1. Clone
 git clone https://github.com/lousputthole/sbox-claude.git
 cd sbox-claude
 
 # 2. Run the installer
 ./install.sh
 
-# 3. Connect your AI client — see Step 2 below
+# Or non-interactive
+./install.sh /path/to/sbox /path/to/my-game --client all
 ```
+
+### Installer flags
+
+| Flag | Description |
+|------|-------------|
+| `-SboxPath` / first positional | Path to your s&box install (auto-detected if omitted) |
+| `-ProjectPath` / second positional | Project root — addon is mounted into `<ProjectPath>/Libraries/sboxskinsgg.claudebridge` so the project loads it on next open without editing `PackageReferences` |
+| `-Client` / `--client` | Comma-separated client list: `claude`, `codex`, `cursor`, `continue`, `desktop`, `all`, `none`. Skips the prompt. |
+| `--no-prompt` (bash only) | Don't ask which clients to configure — install addon only |
 
 ### If auto-detect fails
 
@@ -94,6 +112,8 @@ sbox/
 ```
 
 ### Step 2: Connect Your AI Client
+
+> If you used the installer above with `-Client` / `--client`, this is already done.
 
 The MCP server is client-agnostic — the same binary works with any MCP-compatible client. Pick yours below.
 

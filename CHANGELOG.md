@@ -2,6 +2,27 @@
 
 All notable changes to the s&box Claude Bridge.
 
+## [Unreleased]
+
+### Fixed
+- **Editor bootstrap crash:** the bridge's static constructor called `Log.Info`, which routed through the menu addon's `ConsoleOverlay` and tried to access `Game.TypeLibrary` while it was disabled (during package-load static constructors). Any project with the addon installed failed to open. Static ctor is now empty; init runs from `[EditorEvent.Frame]` after bootstrap.
+- **30-second MCP timeouts when the dock was closed:** queued requests were only drained from `BridgePoller.OnFrame`, which only fires while the Claude Bridge dock widget is open. Moved request processing to a static `[EditorEvent.Frame]` so it always runs. The dock widget now shows status only.
+- **Installer false negative:** `install.ps1` / `install.sh` reported "Installation may be incomplete" because they checked for `sbox-bridge-addon.sbproj` while the actual file is `claudebridge.sbproj`. Switched to a `*.sbproj` glob.
+
+### Added
+- **Multi-client docs:** README and INSTALL now document setup for OpenAI Codex CLI, Cursor, Continue.dev, and Claude Desktop alongside Claude Code. The MCP server itself was already client-agnostic — only the docs were Claude-only.
+- **Console / compile diagnostic tools** — finally implementable:
+  - `get_console_output` — last N entries from a 500-slot ring buffer, optional severity filter
+  - `get_compile_errors` — parses captured logs that match the C# diagnostic format `File(L,C): error CSxxxx: msg` into structured `{file,line,column,code,severity,message}` objects
+  - `get_build_status` — error/warning counts plus an `isCompiling` heuristic from recent `Compiling…/Building…` markers
+  - `clear_console` — wipes the buffer
+  - Backed by `MenuUtility.AddLogger`, located via reflection so the addon doesn't need an assembly reference to the menu addon. If the API can't be found at runtime the bridge keeps working — these tools just return an empty buffer.
+- **Installer enhancements:**
+  - `-ProjectPath` / second positional — also copies the addon into `<project>/Libraries/sboxskinsgg.claudebridge` so the project mounts it with zero manual `.sbproj` editing
+  - Interactive AI-client setup: after copying the addon the installer asks which clients to register the sbox MCP server with and writes their configs (`claude mcp add` for Claude Code, append `[mcp_servers.sbox]` to `~/.codex/config.toml`, JSON merge for Cursor / Continue / Claude Desktop)
+  - `-Client` / `--client` flag for non-interactive use; `--no-prompt` (bash) for fully unattended installs
+  - Better cross-platform Claude Desktop config path detection (Windows / macOS / Linux / WSL)
+
 ## [1.1.0] — 2026-04-27
 
 **21 new tools, 109 total. Major focus: world editing and code discovery.**

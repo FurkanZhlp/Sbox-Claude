@@ -51,20 +51,17 @@ npm run build
 
 ### 3. Connect Your AI Client
 
-Pick one — see [INSTALL.md](INSTALL.md) for full details and other clients (Cursor, Continue, Cline, Claude Desktop).
+Easiest path — let `install.ps1` / `install.sh` do it:
 
-#### Claude Code
+```powershell
+.\install.ps1 -Client claude         # or claude,codex,cursor,continue,desktop / all
+```
+
 ```bash
-claude mcp add sbox -- npx sbox-mcp-server
+./install.sh --client claude
 ```
 
-#### OpenAI Codex CLI
-Edit `~/.codex/config.toml`:
-```toml
-[mcp_servers.sbox]
-command = "npx"
-args = ["sbox-mcp-server"]
-```
+The installer prompts for clients if you don't pass `--client`. Or wire it up by hand — see [INSTALL.md](INSTALL.md#step-2-connect-your-ai-client) for snippets covering Claude Code, OpenAI Codex CLI, Cursor, Continue.dev, and Claude Desktop.
 
 ### 4. Start Building
 
