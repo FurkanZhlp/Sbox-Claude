@@ -30,8 +30,20 @@ public static class ClaudeBridge
 	// UTF-8 without BOM — Node.js JSON.parse rejects the BOM prefix
 	private static readonly Encoding _utf8NoBom = new UTF8Encoding( false );
 
+	private static bool _initialized;
+
 	static ClaudeBridge()
 	{
+		// Static ctor must stay light — TypeLibrary is disabled during boot's
+		// static constructors, and any Log call here can trigger the menu addon's
+		// ConsoleOverlay which crashes when TypeLibrary is inaccessible.
+	}
+
+	[EditorEvent.Frame]
+	public static void EnsureInitialized()
+	{
+		if ( _initialized ) return;
+		_initialized = true;
 		Log.Info( "[SboxBridge] Initializing..." );
 		RegisterHandlers();
 		StartBridge();
