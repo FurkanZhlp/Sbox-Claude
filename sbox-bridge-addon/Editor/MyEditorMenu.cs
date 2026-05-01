@@ -3242,25 +3242,185 @@ public class InstallAssetHandler : IBridgeHandler
 	public async Task<object> Execute( JsonElement p )
 	{
 		var ident = p.GetProperty( "ident" ).GetString();
+		var addToProject = !p.TryGetProperty( "addToProject", out var atp ) || atp.GetBoolean();
+
+		var steps = new List<string>();
+		string assetName = null, assetPath = null, assetRelPath = null;
+		bool installed = false, mounted = false, persisted = false, hotloadQueued = false;
 
 		try
 		{
-			var asset = await AssetSystem.InstallAsync( ident, true );
-			if ( asset == null )
-				return new { error = $"Failed to install asset: {ident}" };
+			// 1) Fetch + explicitly mount the package. AssetSystem.InstallAsync used to
+			//    do this implicitly, but on current builds the mount step is unreliable
+			//    and types from the new package don't show up until manual reload.
+			Sandbox.Package package = null;
+			try
+			{
+				package = await Sandbox.Package.Fetch( ident, false );
+				if ( package != null )
+				{
+					await package.MountAsync( true );
+					mounted = true;
+					steps.Add( "package mounted" );
+				}
+			}
+			catch ( Exception fetchEx )
+			{
+				steps.Add( $"package fetch/mount failed: {fetchEx.Message}" );
+			}
+
+			// 2) Legacy AssetSystem.InstallAsync — installs the asset locally and gives
+			//    us the on-disk paths used by other tools.
+			try
+			{
+				var asset = await AssetSystem.InstallAsync( ident, true );
+				if ( asset != null )
+				{
+					installed = true;
+					assetName    = asset.Name;
+					assetPath    = asset.Path;
+					assetRelPath = asset.RelativePath;
+					steps.Add( "asset installed" );
+				}
+			}
+			catch ( Exception installEx )
+			{
+				steps.Add( $"asset install failed: {installEx.Message}" );
+			}
+
+			// 3) Persist in .sbproj PackageReferences so the next editor open picks it up
+			//    automatically (without going through this command again).
+			if ( addToProject )
+			{
+				try
+				{
+					persisted = TryAddPackageReference( ident, out var reason );
+					steps.Add( persisted ? "added to .sbproj" : $"sbproj: {reason}" );
+				}
+				catch ( Exception sbpEx )
+				{
+					steps.Add( $"sbproj edit failed: {sbpEx.Message}" );
+				}
+			}
+
+			// 4) Schedule a hotload so newly mounted types register immediately.
+			try
+			{
+				EditorUtility.Projects.WaitForCompiles();
+				hotloadQueued = true;
+				steps.Add( "hotload requested" );
+			}
+			catch { /* best-effort */ }
+
+			if ( !installed && !mounted )
+			{
+				return new
+				{
+					error = $"Failed to install '{ident}'. Steps: {string.Join( "; ", steps )}",
+					ident,
+					steps
+				};
+			}
 
 			return new
 			{
-				installed     = true,
+				installed,
+				mounted,
+				persistedInProject = persisted,
+				hotloadQueued,
 				ident,
-				name          = asset.Name,
-				path          = asset.Path,
-				relativePath  = asset.RelativePath
+				name = assetName,
+				path = assetPath,
+				relativePath = assetRelPath,
+				steps
 			};
 		}
 		catch ( Exception ex )
 		{
-			return new { error = $"Failed to install asset: {ex.Message}" };
+			return new { error = $"Failed to install asset: {ex.Message}", steps };
+		}
+	}
+
+	// Adds `ident` to the project's .sbproj PackageReferences if not already there.
+	// Returns true if the file was modified, false if no-op.
+	static bool TryAddPackageReference( string ident, out string reason )
+	{
+		reason = null;
+		try
+		{
+			var rootPath = Project.Current?.GetRootPath();
+			if ( string.IsNullOrEmpty( rootPath ) || !Directory.Exists( rootPath ) )
+			{
+				reason = "no project root";
+				return false;
+			}
+
+			var sbproj = Directory.GetFiles( rootPath, "*.sbproj" ).FirstOrDefault();
+			if ( sbproj == null )
+			{
+				reason = "no .sbproj found";
+				return false;
+			}
+
+			var raw = File.ReadAllText( sbproj );
+			using var doc = JsonDocument.Parse( raw );
+			var root = doc.RootElement;
+
+			var refs = new List<string>();
+			if ( root.TryGetProperty( "PackageReferences", out var refsEl ) && refsEl.ValueKind == JsonValueKind.Array )
+			{
+				foreach ( var item in refsEl.EnumerateArray() )
+				{
+					if ( item.ValueKind == JsonValueKind.String )
+					{
+						refs.Add( item.GetString() );
+					}
+					else if ( item.ValueKind == JsonValueKind.Object && item.TryGetProperty( "Ident", out var identEl ) )
+					{
+						refs.Add( identEl.GetString() );
+					}
+				}
+			}
+
+			if ( refs.Contains( ident, StringComparer.OrdinalIgnoreCase ) )
+			{
+				reason = "already referenced";
+				return false;
+			}
+
+			refs.Add( ident );
+
+			// Rebuild the document with the updated PackageReferences while preserving
+			// other top-level fields. We serialize via a Dictionary so order is mostly
+			// stable for the keys we care about.
+			var dict = new Dictionary<string, object>();
+			foreach ( var prop in root.EnumerateObject() )
+			{
+				if ( prop.Name == "PackageReferences" )
+				{
+					dict[prop.Name] = refs;
+				}
+				else
+				{
+					dict[prop.Name] = JsonSerializer.Deserialize<object>( prop.Value.GetRawText() );
+				}
+			}
+			if ( !dict.ContainsKey( "PackageReferences" ) )
+				dict["PackageReferences"] = refs;
+
+			var output = JsonSerializer.Serialize( dict, new JsonSerializerOptions
+			{
+				WriteIndented = true,
+				Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+			} );
+
+			File.WriteAllText( sbproj, output, new UTF8Encoding( false ) );
+			return true;
+		}
+		catch ( Exception ex )
+		{
+			reason = ex.Message;
+			return false;
 		}
 	}
 }
